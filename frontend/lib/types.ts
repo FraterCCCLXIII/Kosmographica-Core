@@ -164,6 +164,7 @@ export interface RAGResponse {
   graph_paths: Subgraph[];
   mode: "single" | "comparative" | "global" | string;
   confidence: "high" | "medium" | "low" | "insufficient_evidence";
+  confidence_rationale?: string;
 }
 
 export interface EntityDetail {

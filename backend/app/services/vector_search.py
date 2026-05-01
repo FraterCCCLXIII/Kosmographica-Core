@@ -1,4 +1,5 @@
 import uuid
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -52,10 +53,12 @@ class VectorSearchService:
         filters: dict[str, Any] | None,
     ) -> list[SearchResult]:
         query_embedding = await self.embedding_provider.embed_text(query_text)
+        requested_limit = max(1, k)
+        candidate_limit = min(200, requested_limit * 4)
         params: dict[str, Any] = {
             "query_embedding": _format_vector(query_embedding),
             "project_ids": project_ids,
-            "limit": max(1, k),
+            "limit": candidate_limit,
         }
         where_clauses = ["c.project_id = ANY(:project_ids)"]
         filters = filters or {}
@@ -99,16 +102,19 @@ class VectorSearchService:
             """
         )
         rows = (await self.db.execute(sql, params)).mappings().all()
-        return [
+        query_terms = _terms(query_text)
+        results = [
             SearchResult(
                 chunk_id=row["chunk_id"],
                 project_id=row["project_id"],
                 document_id=row["document_id"],
                 text=row["text"],
                 citation=row["citation"],
-                similarity_score=float(row["similarity_score"]),
+                similarity_score=_hybrid_score(float(row["similarity_score"]), query_terms, row["text"], row["document_title"]),
                 metadata={
                     **(row["chunk_metadata"] or {}),
+                    "vector_similarity_score": float(row["similarity_score"]),
+                    "keyword_overlap_score": _keyword_overlap(query_terms, row["text"], row["document_title"]),
                     "document_title": row["document_title"],
                     "tradition": row["tradition"],
                     "region": row["region"],
@@ -118,7 +124,26 @@ class VectorSearchService:
             )
             for row in rows
         ]
+        return sorted(results, key=lambda result: result.similarity_score, reverse=True)[:requested_limit]
 
 
 def _format_vector(values: list[float]) -> str:
     return "[" + ",".join(str(value) for value in values) + "]"
+
+
+def _terms(value: str) -> set[str]:
+    return {term.lower() for term in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", value)}
+
+
+def _keyword_overlap(query_terms: set[str], text_value: str, title: str | None) -> float:
+    if not query_terms:
+        return 0.0
+    haystack = _terms(f"{title or ''} {text_value}")
+    if not haystack:
+        return 0.0
+    return len(query_terms.intersection(haystack)) / len(query_terms)
+
+
+def _hybrid_score(vector_score: float, query_terms: set[str], text_value: str, title: str | None) -> float:
+    keyword_score = _keyword_overlap(query_terms, text_value, title)
+    return (vector_score * 0.75) + (keyword_score * 0.25)

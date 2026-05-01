@@ -38,8 +38,8 @@ async def test_rag_rejects_unknown_citations_from_real_provider_path() -> None:
     response = await service._answer("What is supported?", chunks, [], "single")
 
     assert response.citations == []
-    assert response.confidence == "low"
-    assert "Unsupported citations were removed" in response.answer
+    assert response.confidence == "insufficient_evidence"
+    assert "could not be validated" in response.answer
 
 
 def _result(chunk_id: str, text: str) -> SearchResult:

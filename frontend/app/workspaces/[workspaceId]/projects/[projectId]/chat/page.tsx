@@ -84,6 +84,11 @@ export default function ChatPage() {
               {message.response ? (
                 <>
                   <div>
+                    {message.response.confidence_rationale ? (
+                      <p className="mb-3 rounded-md border bg-muted/40 p-3 text-muted-foreground">
+                        {message.response.confidence_rationale}
+                      </p>
+                    ) : null}
                     <h3 className="mb-2 font-medium">Citations</h3>
                     <div className="space-y-2">
                       {message.response.citations.map((citation) => (
@@ -104,6 +109,22 @@ export default function ChatPage() {
                             <p className="mt-2 text-muted-foreground">{chunk.text}</p>
                           </div>
                         ))}
+                      </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="graph-paths">
+                      <AccordionTrigger>Graph paths used</AccordionTrigger>
+                      <AccordionContent className="space-y-3">
+                        {message.response.graph_paths.length ? message.response.graph_paths.map((path, pathIndex) => (
+                          <div key={pathIndex} className="rounded-md border p-3">
+                            <p className="font-medium">Path {pathIndex + 1}</p>
+                            <p className="text-muted-foreground">{path.nodes.length} node(s), {path.edges.length} edge(s)</p>
+                            <div className="mt-2 space-y-1">
+                              {path.nodes.slice(0, 8).map((node) => (
+                                <p key={node.id} className="text-xs">{node.node_type}: {node.label}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )) : <p className="text-sm text-muted-foreground">No graph paths were used for this answer.</p>}
                       </AccordionContent>
                     </AccordionItem>
                   </Accordion>
