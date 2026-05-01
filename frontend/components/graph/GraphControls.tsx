@@ -15,8 +15,12 @@ interface GraphControlsProps {
   filters: GraphFilters;
   searchQuery: string;
   isLayoutRunning: boolean;
+  isSearchLoading?: boolean;
+  hasSearchResults?: boolean;
   onFiltersChange: (filters: GraphFilters) => void;
   onSearchChange: (value: string) => void;
+  onSearchSubmit: () => void;
+  onClearSearch: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onResetLayout: () => void;
@@ -29,8 +33,12 @@ export function GraphControls({
   filters,
   searchQuery,
   isLayoutRunning,
+  isSearchLoading = false,
+  hasSearchResults = false,
   onFiltersChange,
   onSearchChange,
+  onSearchSubmit,
+  onClearSearch,
   onZoomIn,
   onZoomOut,
   onResetLayout,
@@ -47,13 +55,30 @@ export function GraphControls({
         <CardTitle>Graph controls</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-2">
+        <form
+          className="space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSearchSubmit();
+          }}
+        >
           <Label htmlFor="graph-search">Search label</Label>
           <div className="relative">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input id="graph-search" className="pl-8" value={searchQuery} onChange={(event) => onSearchChange(event.target.value)} />
           </div>
-        </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="submit" disabled={searchQuery.trim().length === 0 || isSearchLoading}>
+              {isSearchLoading ? "Building..." : "Build graph"}
+            </Button>
+            <Button type="button" variant="outline" disabled={!hasSearchResults && searchQuery.length === 0} onClick={onClearSearch}>
+              Clear
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Search loads a bounded neighborhood around matching graph nodes instead of rendering the full project graph.
+          </p>
+        </form>
 
         <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" onClick={onZoomIn}><ZoomIn className="mr-2 h-4 w-4" />Zoom in</Button>

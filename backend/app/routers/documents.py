@@ -46,6 +46,8 @@ async def upload_document(
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / (file.filename or f"document.{source_type}")
     content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail=f"Uploaded file is empty: {file.filename}")
     file_path.write_bytes(content)
 
     document = Document(

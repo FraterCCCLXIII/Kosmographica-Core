@@ -9,6 +9,11 @@ from app.models.document import Chunk, Document
 from app.models.graph import GraphEdge, GraphNode
 from app.models.knowledge import Claim, Concept, Entity
 
+MAX_ENTITIES_PER_CHUNK = 10
+MAX_COOCCURRENCE_EDGES = 5_000
+MAX_SEMANTIC_EDGES = 10_000
+SEMANTIC_SIMILARITY_THRESHOLD = 0.90
+
 
 class GraphBuilder:
     def __init__(self, db: AsyncSession) -> None:
@@ -165,7 +170,12 @@ class GraphBuilder:
         await self.db.commit()
         return nodes
 
-    async def build_semantic_edges(self, project_id: uuid.UUID, similarity_threshold: float = 0.85) -> list[GraphEdge]:
+    async def build_semantic_edges(
+        self,
+        project_id: uuid.UUID,
+        similarity_threshold: float = SEMANTIC_SIMILARITY_THRESHOLD,
+        max_edges: int = MAX_SEMANTIC_EDGES,
+    ) -> list[GraphEdge]:
         result = await self.db.execute(
             text(
                 """
@@ -184,9 +194,11 @@ class GraphBuilder:
                  AND ce2.model = ce1.model
                 WHERE c1.project_id = :project_id
                   AND 1 - (ce1.embedding <=> ce2.embedding) >= :similarity_threshold
+                ORDER BY similarity DESC
+                LIMIT :max_edges
                 """
             ),
-            {"project_id": project_id, "similarity_threshold": similarity_threshold},
+            {"project_id": project_id, "similarity_threshold": similarity_threshold, "max_edges": max_edges},
         )
         edges: list[GraphEdge] = []
         for row in result.mappings():
@@ -210,15 +222,24 @@ class GraphBuilder:
         await self.db.commit()
         return edges
 
-    async def build_cooccurrence_edges(self, project_id: uuid.UUID) -> list[GraphEdge]:
+    async def build_cooccurrence_edges(
+        self,
+        project_id: uuid.UUID,
+        max_entities_per_chunk: int = MAX_ENTITIES_PER_CHUNK,
+        max_edges: int = MAX_COOCCURRENCE_EDGES,
+    ) -> list[GraphEdge]:
         entity_result = await self.db.execute(select(Entity).where(Entity.project_id == project_id))
         chunk_to_entities: dict[str, list[Entity]] = defaultdict(list)
+        entity_frequency: dict[uuid.UUID, int] = defaultdict(int)
         for entity in entity_result.scalars().all():
             for source_chunk_id in entity.metadata_.get("source_chunk_ids", []):
                 chunk_to_entities[source_chunk_id].append(entity)
+                entity_frequency[entity.id] += 1
 
         pair_counts: dict[tuple[uuid.UUID, uuid.UUID], tuple[int, uuid.UUID]] = {}
         for source_chunk_id, entities in chunk_to_entities.items():
+            if len(entities) > max_entities_per_chunk:
+                continue
             sorted_entities = sorted(entities, key=lambda item: str(item.id))
             for index, source_entity in enumerate(sorted_entities):
                 for target_entity in sorted_entities[index + 1 :]:
@@ -226,8 +247,18 @@ class GraphBuilder:
                     current_count, _ = pair_counts.get(key, (0, uuid.UUID(source_chunk_id)))
                     pair_counts[key] = (current_count + 1, uuid.UUID(source_chunk_id))
 
+        ranked_pairs = sorted(
+            pair_counts.items(),
+            key=lambda item: (
+                item[1][0],
+                entity_frequency[item[0][0]] + entity_frequency[item[0][1]],
+                str(item[0][0]),
+            ),
+            reverse=True,
+        )[:max_edges]
+
         edges: list[GraphEdge] = []
-        for (source_entity_id, target_entity_id), (weight, evidence_chunk_id) in pair_counts.items():
+        for (source_entity_id, target_entity_id), (weight, evidence_chunk_id) in ranked_pairs:
             source_entity = await self.db.get(Entity, source_entity_id)
             target_entity = await self.db.get(Entity, target_entity_id)
             if not source_entity or not target_entity:

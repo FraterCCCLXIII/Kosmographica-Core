@@ -3,7 +3,7 @@
 import Graph from "graphology";
 import circular from "graphology-layout/circular";
 import forceAtlas2 from "graphology-layout-forceatlas2";
-import Sigma from "sigma";
+import type Sigma from "sigma";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { colorForEdgeType, colorForNodeType } from "@/components/graph/graphStyles";
@@ -84,24 +84,35 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
 
     useEffect(() => {
       if (!containerRef.current) return;
+      let disposed = false;
+      let sigmaInstance: Sigma | null = null;
       const graph = buildGraph(nodes, edges);
       circular.assign(graph);
       runForceAtlas(graph, 500);
 
-      const sigma = new Sigma(graph, containerRef.current, {
-        renderEdgeLabels: false,
-        allowInvalidContainer: true
-      });
-      sigma.on("clickNode", ({ node }) => onNodeClick(String(node)));
-      graphRef.current = graph;
-      sigmaRef.current = sigma;
+      async function renderGraph() {
+        const container = containerRef.current;
+        if (!container) return;
+        const { default: SigmaRenderer } = await import("sigma");
+        if (disposed) return;
+        const sigma = new SigmaRenderer(graph, container, {
+          renderEdgeLabels: false,
+          allowInvalidContainer: true
+        });
+        sigma.on("clickNode", ({ node }) => onNodeClick(String(node)));
+        graphRef.current = graph;
+        sigmaRef.current = sigma;
+        sigmaInstance = sigma;
+      }
+      void renderGraph();
 
       return () => {
+        disposed = true;
         if (layoutTimerRef.current) window.clearInterval(layoutTimerRef.current);
         layoutTimerRef.current = null;
         setIsLayoutRunning(false);
         onLayoutRunningChange?.(false);
-        sigma.kill();
+        sigmaInstance?.kill();
         sigmaRef.current = null;
         graphRef.current = null;
       };
@@ -174,8 +185,9 @@ function buildGraph(nodes: GraphNode[], edges: GraphEdge[]) {
 
 function runForceAtlas(graph: Graph, iterations: number) {
   if (graph.order === 0) return;
+  const cappedIterations = graph.order > 500 ? Math.min(iterations, 50) : iterations;
   forceAtlas2.assign(graph, {
-    iterations,
+    iterations: cappedIterations,
     settings: {
       ...forceAtlas2.inferSettings(graph),
       gravity: 1,

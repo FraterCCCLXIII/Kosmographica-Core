@@ -4,6 +4,7 @@ import type {
   CrossProjectLink,
   GraphEdge,
   GraphNode,
+  GraphStats,
   GlobalCanonicalEntity,
   JsonObject,
   LinkSuggestion,
@@ -128,8 +129,37 @@ export const api = {
   async getGraphNodes(projectId: UUID): Promise<GraphNode[]> {
     return listItems(await request<ListResponse<GraphNode>>(`/projects/${projectId}/graph/nodes`));
   },
-  async getGraphEdges(projectId: UUID): Promise<GraphEdge[]> {
-    return listItems(await request<ListResponse<GraphEdge>>(`/projects/${projectId}/graph/edges`));
+  async getGraphEdges(
+    projectId: UUID,
+    options?: { limit?: number; edgeTypes?: string[]; minWeight?: number; documentId?: UUID }
+  ): Promise<GraphEdge[]> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.edgeTypes?.length) params.set("edge_type", options.edgeTypes.join(","));
+    if (options?.minWeight !== undefined) params.set("min_weight", String(options.minWeight));
+    if (options?.documentId) params.set("document_id", options.documentId);
+    const query = params.toString();
+    return listItems(await request<ListResponse<GraphEdge>>(`/projects/${projectId}/graph/edges${query ? `?${query}` : ""}`));
+  },
+  async getGraphStats(projectId: UUID): Promise<GraphStats> {
+    const response = await request<{ data: GraphStats }>(`/projects/${projectId}/graph/stats`);
+    return response.data;
+  },
+  async searchGraph(
+    projectId: UUID,
+    options: { query: string; depth?: number; seedLimit?: number; nodeLimit?: number; edgeLimit?: number; edgeTypes?: string[]; nodeTypes?: string[] }
+  ): Promise<{ nodes: GraphNode[]; edges: GraphEdge[]; seed_node_ids: UUID[]; query: string }> {
+    const params = new URLSearchParams({ query: options.query });
+    if (options.depth !== undefined) params.set("depth", String(options.depth));
+    if (options.seedLimit !== undefined) params.set("seed_limit", String(options.seedLimit));
+    if (options.nodeLimit !== undefined) params.set("node_limit", String(options.nodeLimit));
+    if (options.edgeLimit !== undefined) params.set("edge_limit", String(options.edgeLimit));
+    if (options.edgeTypes?.length) params.set("edge_type", options.edgeTypes.join(","));
+    if (options.nodeTypes?.length) params.set("node_type", options.nodeTypes.join(","));
+    const response = await request<{ data: { nodes: GraphNode[]; edges: GraphEdge[]; seed_node_ids: UUID[]; query: string } }>(
+      `/projects/${projectId}/graph/search?${params.toString()}`
+    );
+    return response.data;
   },
   async getSubgraph(projectId: UUID, options?: { nodeId?: UUID; depth?: number }): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
     const params = new URLSearchParams();

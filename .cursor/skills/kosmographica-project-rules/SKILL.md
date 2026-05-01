@@ -63,6 +63,22 @@ The graph API reads from them - it does not call the graph builder.
 - OAuth / multi-user auth
 - UMAP + HDBSCAN clustering, schema only, no implementation yet
 
+## Graph Construction Limits Added After co_occurs_with Explosion
+
+- co_occurs_with: max 10 entities per chunk considered,
+  max 5,000 edges per project, ranked by weight
+- semantically_similar: threshold 0.90 minimum, previously 0.85,
+  max 10,000 edges per project
+- Graph page default load: mentions + contains + supports_claim only,
+  limit 500 edges
+- co_occurs_with only shown when explicitly enabled in graph controls
+- ForceAtlas2 max 50 iterations when node count > 500
+- "Large graph" warning shown when edges > 2,000 before rendering
+
+The co_occurs_with edge type is structurally useful but should never be
+generated exhaustively. Reserve it for entity pairs that co-occur above a
+frequency threshold across the whole corpus, not every pair in every chunk.
+
 ## Naming Conventions
 
 - Python: snake_case, Pydantic v2 models, async SQLAlchemy 2.0

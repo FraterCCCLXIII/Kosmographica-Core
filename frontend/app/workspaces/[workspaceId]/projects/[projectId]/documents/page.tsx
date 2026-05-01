@@ -32,8 +32,12 @@ export default function DocumentsPage() {
   const upload = useUploadDocument(projectId);
 
   async function uploadFile(file: File) {
-    const result = await upload.mutateAsync({ file });
-    setLatestDocumentId(result.document_id);
+    try {
+      const result = await upload.mutateAsync({ file });
+      setLatestDocumentId(result.document_id);
+    } catch {
+      // The mutation state feeds ErrorBanner; avoid an unhandled runtime error.
+    }
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) {

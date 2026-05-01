@@ -128,6 +128,13 @@ export interface GraphEdge {
   created_at?: string;
 }
 
+export interface GraphStats {
+  project_id: UUID;
+  node_count: number;
+  edge_count: number;
+  edge_types: Record<string, number>;
+}
+
 export interface SearchResult {
   chunk_id: UUID;
   document_id: UUID;
