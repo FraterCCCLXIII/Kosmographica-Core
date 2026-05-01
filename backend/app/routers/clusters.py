@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -13,11 +13,38 @@ router = APIRouter(tags=["clusters"])
 
 
 @router.get("/projects/{project_id}/clusters")
-async def list_clusters(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, object]:
+async def list_clusters(
+    project_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+    algorithm: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
     if not await db.get(Project, project_id):
         raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
-    result = await db.execute(select(Cluster).where(Cluster.project_id == project_id).order_by(Cluster.label))
-    return {"message": "Clusters listed.", "data": {"project_id": str(project_id), "items": [_serialize_cluster(cluster) for cluster in result.scalars()]}}
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    filters = [Cluster.project_id == project_id]
+    if algorithm:
+        filters.append(Cluster.algorithm == algorithm)
+    result = await db.execute(
+        select(Cluster)
+        .where(*filters)
+        .order_by(Cluster.label)
+        .offset(offset)
+        .limit(limit)
+    )
+    total = (await db.execute(select(func.count()).select_from(Cluster).where(*filters))).scalar_one()
+    return {
+        "message": "Clusters listed.",
+        "data": {
+            "project_id": str(project_id),
+            "items": [_serialize_cluster(cluster) for cluster in result.scalars()],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
 
 
 @router.post("/projects/{project_id}/clusters/generate", status_code=status.HTTP_202_ACCEPTED)

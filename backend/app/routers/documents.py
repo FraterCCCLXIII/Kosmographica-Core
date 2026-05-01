@@ -1,7 +1,7 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status as http_status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,7 @@ EXTENSION_TO_SOURCE_TYPE = {
 }
 
 
-@router.post("/documents/upload", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/documents/upload", status_code=http_status.HTTP_202_ACCEPTED)
 async def upload_document(
     project_id: uuid.UUID = Form(...),
     file: UploadFile = File(...),
@@ -89,17 +89,35 @@ async def upload_document(
 
 
 @router.get("/projects/{project_id}/documents")
-async def list_documents(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, object]:
+async def list_documents(
+    project_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+    status: DocumentStatus | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    filters = [Document.project_id == project_id]
+    if status:
+        filters.append(Document.status == status)
 
     result = await db.execute(
-        select(Document).where(Document.project_id == project_id).order_by(Document.created_at.desc())
+        select(Document).where(*filters).order_by(Document.created_at.desc()).offset(offset).limit(limit)
     )
+    total = (await db.execute(select(func.count()).select_from(Document).where(*filters))).scalar_one()
     return {
         "message": "Documents listed.",
-        "data": {"project_id": str(project_id), "items": [_serialize_document(document) for document in result.scalars()]},
+        "data": {
+            "project_id": str(project_id),
+            "items": [_serialize_document(document) for document in result.scalars()],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
     }
 
 
@@ -144,6 +162,8 @@ async def list_document_chunks(
     document = await db.get(Document, document_id)
     if not document:
         raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     result = await db.execute(
         select(Chunk)
         .where(Chunk.document_id == document_id, Chunk.project_id == document.project_id)

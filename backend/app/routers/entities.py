@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -14,11 +14,41 @@ router = APIRouter(tags=["entities"])
 
 
 @router.get("/projects/{project_id}/entities")
-async def list_entities(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, object]:
+async def list_entities(
+    project_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+    query: str | None = None,
+    entity_type: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
     if not await db.get(Project, project_id):
         raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
-    result = await db.execute(select(Entity).where(Entity.project_id == project_id).order_by(Entity.canonical_name))
-    return {"message": "Entities listed.", "data": {"project_id": str(project_id), "items": [_serialize_entity(entity) for entity in result.scalars()]}}
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    filters = [Entity.project_id == project_id]
+    if query:
+        filters.append(Entity.canonical_name.ilike(f"%{query.strip()}%"))
+    if entity_type:
+        filters.append(Entity.entity_type == entity_type)
+    result = await db.execute(
+        select(Entity)
+        .where(*filters)
+        .order_by(Entity.canonical_name)
+        .offset(offset)
+        .limit(limit)
+    )
+    total = (await db.execute(select(func.count()).select_from(Entity).where(*filters))).scalar_one()
+    return {
+        "message": "Entities listed.",
+        "data": {
+            "project_id": str(project_id),
+            "items": [_serialize_entity(entity) for entity in result.scalars()],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
 
 
 @router.get("/entities/{entity_id}/detail")
