@@ -86,3 +86,43 @@ export function useUploadDocument(projectId: UUID) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents", projectId] })
   });
 }
+
+export function useUploadDocuments(projectId: UUID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { files: File[] }) => {
+      const results = await Promise.allSettled(
+        input.files.map(async (file) => ({
+          fileName: file.name,
+          document: await api.uploadDocument({ projectId, file })
+        }))
+      );
+      const uploaded = results.flatMap((result) => (result.status === "fulfilled" ? [result.value.document] : []));
+      const failed = results.flatMap((result, index) =>
+        result.status === "rejected"
+          ? [{ fileName: input.files[index]?.name ?? "Unknown file", error: result.reason }]
+          : []
+      );
+      if (!uploaded.length && failed.length) {
+        throw new Error(`Upload failed for ${failed.map((failure) => failure.fileName).join(", ")}`);
+      }
+      return { uploaded, failed };
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["documents", projectId] })
+  });
+}
+
+export function useDeleteDocument(projectId: UUID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (documentId: UUID) => api.deleteDocument(documentId),
+    onSuccess: (_, documentId) => {
+      queryClient.invalidateQueries({ queryKey: ["documents", projectId] });
+      queryClient.removeQueries({ queryKey: ["document", documentId] });
+      queryClient.removeQueries({ queryKey: ["document-status", documentId] });
+      queryClient.removeQueries({ queryKey: ["document-chunks", documentId] });
+      queryClient.removeQueries({ queryKey: ["document-graph-summary", documentId] });
+      queryClient.removeQueries({ queryKey: ["processing-timeline", documentId] });
+    }
+  });
+}

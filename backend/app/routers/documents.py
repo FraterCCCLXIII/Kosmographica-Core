@@ -1,4 +1,5 @@
 import uuid
+import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status as http_status
@@ -225,18 +226,72 @@ async def get_document_graph_summary(document_id: uuid.UUID, db: AsyncSession = 
 
 
 @router.delete("/documents/{document_id}")
-async def delete_document(document_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, object]:
+async def delete_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
     document = await db.get(Document, document_id)
     if not document:
         raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
+    chunk_ids = list(
+        (
+            await db.execute(
+                select(Chunk.id).where(Chunk.document_id == document_id, Chunk.project_id == document.project_id)
+            )
+        ).scalars()
+    )
+    ref_ids = [document_id, *chunk_ids]
+    if chunk_ids:
+        await db.execute(
+            delete(GraphEdge).where(
+                GraphEdge.project_id == document.project_id,
+                GraphEdge.evidence_chunk_id.in_(chunk_ids),
+            )
+        )
+    await db.execute(
+        delete(GraphNode).where(
+            GraphNode.project_id == document.project_id,
+            GraphNode.ref_id.in_(ref_ids),
+        )
+    )
+    source_uri = document.source_uri
     await db.execute(delete(Document).where(Document.id == document_id))
     await db.commit()
+    _delete_uploaded_source(source_uri, settings.upload_dir)
     return {"message": "Document deleted.", "data": {"document_id": str(document_id)}}
 
 
 def _source_type_for_filename(filename: str | None) -> str:
     suffix = Path(filename or "").suffix.lower()
     return EXTENSION_TO_SOURCE_TYPE.get(suffix, "")
+
+
+def _delete_uploaded_source(source_uri: str | None, upload_dir: str) -> None:
+    if not source_uri:
+        return
+
+    try:
+        source_path = Path(source_uri).resolve()
+        upload_root = Path(upload_dir).resolve()
+    except (OSError, RuntimeError):
+        return
+
+    if upload_root != source_path and upload_root not in source_path.parents:
+        return
+    if not source_path.exists():
+        return
+    try:
+        if source_path.is_dir():
+            shutil.rmtree(source_path)
+            return
+
+        source_path.unlink()
+        parent = source_path.parent
+        if parent != upload_root and upload_root in parent.parents:
+            parent.rmdir()
+    except OSError:
+        pass
 
 
 def _serialize_job(job: ProcessingJob) -> dict[str, object]:

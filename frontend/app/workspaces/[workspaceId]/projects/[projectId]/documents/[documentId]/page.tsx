@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  useDeleteDocument,
   useDocument,
   useDocumentChunks,
   useDocumentGraphSummary,
@@ -20,6 +21,7 @@ import {
 
 export default function DocumentDetailPage() {
   const { workspaceId, projectId, documentId } = useParams<{ workspaceId: string; projectId: string; documentId: string }>();
+  const router = useRouter();
   const document = useDocument(documentId);
   const status = useDocumentStatus(documentId);
   const chunks = useDocumentChunks(documentId);
@@ -27,11 +29,22 @@ export default function DocumentDetailPage() {
   const timeline = useProcessingTimeline(documentId);
   const reprocess = useReprocessDocument(documentId);
   const retryJob = useRetryProcessingJob(documentId);
+  const deleteDocument = useDeleteDocument(projectId);
   const failedJob = timeline.data?.jobs.slice().reverse().find((job) => job.status === "failed");
+
+  async function deleteFailedDocument(title: string) {
+    if (!window.confirm(`Delete failed document "${title}"?`)) return;
+    try {
+      await deleteDocument.mutateAsync(documentId);
+      router.push(`/workspaces/${workspaceId}/projects/${projectId}/documents`);
+    } catch {
+      // The mutation state feeds ErrorBanner; avoid an unhandled runtime error.
+    }
+  }
 
   return (
     <div className="space-y-6">
-      <ErrorBanner error={document.error || status.error || chunks.error || summary.error || timeline.error || reprocess.error || retryJob.error} />
+      <ErrorBanner error={document.error || status.error || chunks.error || summary.error || timeline.error || reprocess.error || retryJob.error || deleteDocument.error} />
       {document.data ? (
         <>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -51,6 +64,15 @@ export default function DocumentDetailPage() {
               >
                 {retryJob.isPending ? "Retrying..." : "Retry failed"}
               </Button>
+              {document.data.status === "failed" ? (
+                <Button
+                  variant="destructive"
+                  disabled={deleteDocument.isPending}
+                  onClick={() => void deleteFailedDocument(document.data.title)}
+                >
+                  {deleteDocument.isPending ? "Deleting..." : "Delete failed"}
+                </Button>
+              ) : null}
               <Link
                 className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
                 href={`/workspaces/${workspaceId}/projects/${projectId}/graph?query=${encodeURIComponent(document.data.title)}&documentId=${documentId}`}

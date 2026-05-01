@@ -1,6 +1,6 @@
 "use client";
 
-import { UploadCloud } from "lucide-react";
+import { Trash2, UploadCloud } from "lucide-react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { DragEvent, useState } from "react";
@@ -10,15 +10,14 @@ import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useDocumentStatus, useDocuments, useUploadDocument } from "@/lib/hooks/useDocuments";
+import { useDeleteDocument, useDocumentStatus, useDocuments, useUploadDocuments } from "@/lib/hooks/useDocuments";
 
-function UploadProgress({ documentId }: { documentId?: string }) {
+function UploadProgressItem({ documentId }: { documentId: string }) {
   const status = useDocumentStatus(documentId);
-  if (!documentId) return null;
   return (
-    <div className="rounded-md border p-3 text-sm">
-      <div className="flex items-center justify-between">
-        <span>Latest upload</span>
+    <div className="flex items-center justify-between gap-3">
+      <span className="truncate">{documentId}</span>
+      <div className="shrink-0">
         {status.data ? <StatusBadge status={status.data.document_status} /> : <span>Checking...</span>}
       </div>
       {status.data?.job?.error_message ? <p className="mt-2 text-destructive">{status.data.job.error_message}</p> : null}
@@ -26,16 +25,36 @@ function UploadProgress({ documentId }: { documentId?: string }) {
   );
 }
 
+function UploadProgress({ documentIds }: { documentIds: string[] }) {
+  if (!documentIds.length) return null;
+  return (
+    <div className="space-y-2 rounded-md border p-3 text-sm">
+      <p className="font-medium">Latest uploads</p>
+      {documentIds.map((documentId) => (
+        <UploadProgressItem key={documentId} documentId={documentId} />
+      ))}
+    </div>
+  );
+}
+
 export default function DocumentsPage() {
   const { workspaceId, projectId } = useParams<{ workspaceId: string; projectId: string }>();
-  const [latestDocumentId, setLatestDocumentId] = useState<string>();
+  const [latestDocumentIds, setLatestDocumentIds] = useState<string[]>([]);
+  const [uploadWarning, setUploadWarning] = useState<string>();
   const documents = useDocuments(projectId);
-  const upload = useUploadDocument(projectId);
+  const upload = useUploadDocuments(projectId);
+  const deleteDocument = useDeleteDocument(projectId);
+  const pendingUploadCount = upload.variables?.files.length ?? 0;
 
-  async function uploadFile(file: File) {
+  async function uploadFiles(files: File[]) {
+    if (!files.length) return;
+    setUploadWarning(undefined);
     try {
-      const result = await upload.mutateAsync({ file });
-      setLatestDocumentId(result.document_id);
+      const results = await upload.mutateAsync({ files });
+      setLatestDocumentIds(results.uploaded.map((result) => result.document_id));
+      if (results.failed.length) {
+        setUploadWarning(`Some files could not be uploaded: ${results.failed.map((failure) => failure.fileName).join(", ")}`);
+      }
     } catch {
       // The mutation state feeds ErrorBanner; avoid an unhandled runtime error.
     }
@@ -43,8 +62,13 @@ export default function DocumentsPage() {
 
   function onDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
-    const file = event.dataTransfer.files.item(0);
-    if (file) void uploadFile(file);
+    void uploadFiles(Array.from(event.dataTransfer.files));
+  }
+
+  function deleteFailedDocument(documentId: string, title: string) {
+    if (window.confirm(`Delete failed document "${title}"?`)) {
+      deleteDocument.mutate(documentId);
+    }
   }
 
   return (
@@ -53,7 +77,7 @@ export default function DocumentsPage() {
         <h1 className="text-2xl font-semibold">Documents</h1>
         <p className="text-sm text-muted-foreground">Upload source files and track ingestion into cited chunks and graph evidence.</p>
       </div>
-      <ErrorBanner error={documents.error || upload.error} />
+      <ErrorBanner error={documents.error || upload.error || uploadWarning || deleteDocument.error} />
       <Card>
         <CardContent
           onDragOver={(event) => event.preventDefault()}
@@ -62,25 +86,26 @@ export default function DocumentsPage() {
         >
           <UploadCloud className="h-8 w-8 text-muted-foreground" />
           <div>
-            <p className="font-medium">Drag a PDF, DOCX, HTML, TXT, or MD file here</p>
-            <p className="text-sm text-muted-foreground">The file is saved locally and processed asynchronously.</p>
+            <p className="font-medium">Drag PDF, DOCX, HTML, TXT, or MD files here</p>
+            <p className="text-sm text-muted-foreground">Files are saved locally and processed asynchronously.</p>
           </div>
           <Button disabled={upload.isPending} onClick={() => document.getElementById("file-upload")?.click()}>
-            {upload.isPending ? "Uploading..." : "Choose file"}
+            {upload.isPending ? `Uploading ${pendingUploadCount} file${pendingUploadCount === 1 ? "" : "s"}...` : "Choose files"}
           </Button>
           <input
             id="file-upload"
             className="hidden"
             type="file"
+            multiple
             accept=".pdf,.docx,.html,.htm,.txt,.md"
             onChange={(event) => {
-              const file = event.target.files?.item(0);
-              if (file) void uploadFile(file);
+              void uploadFiles(Array.from(event.target.files ?? []));
+              event.currentTarget.value = "";
             }}
           />
         </CardContent>
       </Card>
-      <UploadProgress documentId={latestDocumentId} />
+      <UploadProgress documentIds={latestDocumentIds} />
       <Card>
         <CardHeader>
           <CardTitle>Document library</CardTitle>
@@ -107,6 +132,18 @@ export default function DocumentsPage() {
                   >
                     Graph
                   </Link>
+                  {document.status === "failed" ? (
+                    <Button
+                      aria-label={`Delete failed document ${document.title}`}
+                      disabled={deleteDocument.isPending}
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => deleteFailedDocument(document.id, document.title)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </Button>
+                  ) : null}
                   <StatusBadge status={document.status} />
                 </div>
               </div>
