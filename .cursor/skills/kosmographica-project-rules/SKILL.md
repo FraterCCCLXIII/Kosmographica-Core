@@ -1,0 +1,81 @@
+---
+name: kosmographica-project-rules
+description: Applies Kosmographica project rules, architecture constraints, stack decisions, naming conventions, and open-decision logging. Use at the start of every prompt in the Kosmographica project before planning, coding, reviewing, designing, or answering architecture questions.
+---
+
+# Kosmographica Project Rules
+
+Use this skill for every Kosmographica project prompt. Treat these rules as project-level constraints and prefer them over generic defaults when they conflict.
+
+## What We Are Building
+
+A local-first, multi-project knowledge graph system for large document corpora.
+Each Project is an isolated research graph. Projects can later be linked into a
+comparative "megagraph" without losing provenance or collapsing distinctions.
+
+## Non-Negotiable Constraints
+
+- Every claim, edge, and relationship must trace back to a source chunk and document.
+- Never invent citations. If evidence is weak, say so explicitly.
+- Project graphs are isolated by default. Cross-project queries are opt-in.
+- The megagraph is a generated VIEW, not the source of truth.
+- Speculative links must be stored with a confidence score and flagged in the UI.
+
+## What To Avoid
+
+- Collapsing traditions into vague sameness, for example, "all savior figures are the same".
+- Treating low-confidence comparative links as established facts.
+- Losing provenance when merging across projects.
+- Building one giant graph before individual project graphs are solid.
+- Forcing all projects to share one ontology prematurely.
+
+## Stack Decisions Locked For MVP
+
+- Frontend: Next.js 14, TypeScript, Tailwind CSS, shadcn/ui
+- Backend: Python 3.11, FastAPI
+- Database: PostgreSQL 16 + pgvector
+- Graph storage: Postgres edge tables, no Neo4j yet
+- Embeddings: OpenAI text-embedding-3-small, abstracted behind `EmbeddingProvider`
+- LLM: Anthropic Claude, abstracted behind `LLMProvider`
+- Background jobs: Dramatiq + RabbitMQ
+- File parsing: PyMuPDF, python-docx, BeautifulSoup4
+- Graph visualization: Sigma.js
+
+## Resolved Decisions After Session 8
+
+MIGRATION STRATEGY: Use Alembic autogenerate from ORM models.
+The Session 1 SQL files are reference only - Alembic is the
+canonical migration tool going forward.
+
+WORKER STRATEGY: Add `DRAMATIQ_DEV_MODE` env flag. When true,
+ingestion runs synchronously. RabbitMQ is required only in
+production mode.
+
+GRAPH API SOURCE: Query persisted `graph_node`/`graph_edge` rows
+directly. The graph builder populates those rows during ingestion.
+The graph API reads from them - it does not call the graph builder.
+
+## Deferred Until Post-MVP
+
+- Qdrant adapter
+- Neo4j / Kuzu adapter
+- LangGraph / LlamaIndex integration
+- OAuth / multi-user auth
+- UMAP + HDBSCAN clustering, schema only, no implementation yet
+
+## Naming Conventions
+
+- Python: snake_case, Pydantic v2 models, async SQLAlchemy 2.0
+- TypeScript: camelCase components, PascalCase types
+- Database: snake_case tables and columns, UUID primary keys
+- API routes: `/api/v1/{resource}`
+
+## Open Decisions Log
+
+Unresolved decisions must be listed at the end of each session output.
+
+Use this format:
+
+```text
+OPEN: [decision needed] - [options]
+```

@@ -1,0 +1,1 @@
+"""Kosmographica FastAPI backend package."""
