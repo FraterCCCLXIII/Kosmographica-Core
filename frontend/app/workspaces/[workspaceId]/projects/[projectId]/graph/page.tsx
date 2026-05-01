@@ -11,6 +11,7 @@ import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { exportGraphSearch, exportSelectedGraphEvidence } from "@/lib/exportArtifacts";
 import { ALL_GRAPH_EDGE_TYPES, DEFAULT_GRAPH_EDGE_TYPES, MAX_EDGES_DEFAULT, useGraphEdges, useGraphNodes, useGraphStats } from "@/lib/hooks/useGraph";
 import type { GraphEdge, GraphNode } from "@/lib/types";
 
@@ -173,6 +174,36 @@ export default function GraphPage() {
           <Button disabled={selectedNodeIds.size === 0 || saveResearchMap.isPending} onClick={() => saveResearchMap.mutate()}>
             {saveResearchMap.isPending ? "Saving..." : "Save as Research Map"}
           </Button>
+          <Button
+            variant="outline"
+            disabled={selectedNodeIds.size === 0}
+            onClick={() =>
+              exportSelectedGraphEvidence({
+                projectId,
+                selectedNodeIds: Array.from(selectedNodeIds),
+                nodes: graphNodes,
+                edges: graphEdges,
+                format: "markdown"
+              })
+            }
+          >
+            Export selection md
+          </Button>
+          <Button
+            variant="outline"
+            disabled={selectedNodeIds.size === 0}
+            onClick={() =>
+              exportSelectedGraphEvidence({
+                projectId,
+                selectedNodeIds: Array.from(selectedNodeIds),
+                nodes: graphNodes,
+                edges: graphEdges,
+                format: "json"
+              })
+            }
+          >
+            Export selection json
+          </Button>
         </div>
       </div>
       <ErrorBanner error={nodes.error || edges.error || stats.error || searchGraph.error || expandNeighborhood.error || saveResearchMap.error} />
@@ -182,7 +213,7 @@ export default function GraphPage() {
         </div>
       ) : null}
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-        <div className="space-y-4">
+        <div className="relative z-10 space-y-4">
           <GraphControls
             nodes={graphNodes}
             edges={graphEdges}
@@ -246,6 +277,40 @@ export default function GraphPage() {
                 <p className="text-muted-foreground">
                   Depth {activeGraph.depth}, node limit {activeGraph.nodeLimit}, edge limit {activeGraph.edgeLimit}.
                 </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      exportGraphSearch({
+                        projectId,
+                        query: activeGraph.query,
+                        nodes: activeGraph.nodes,
+                        edges: activeGraph.edges,
+                        seedNodeIds: activeGraph.seedNodeIds,
+                        limits: { depth: activeGraph.depth, nodeLimit: activeGraph.nodeLimit, edgeLimit: activeGraph.edgeLimit },
+                        format: "markdown"
+                      })
+                    }
+                  >
+                    Export graph md
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      exportGraphSearch({
+                        projectId,
+                        query: activeGraph.query,
+                        nodes: activeGraph.nodes,
+                        edges: activeGraph.edges,
+                        seedNodeIds: activeGraph.seedNodeIds,
+                        limits: { depth: activeGraph.depth, nodeLimit: activeGraph.nodeLimit, edgeLimit: activeGraph.edgeLimit },
+                        format: "json"
+                      })
+                    }
+                  >
+                    Export graph json
+                  </Button>
+                </div>
                 {activeGraph.nodes.length === 0 ? (
                   <p className="rounded-md border border-dashed p-3 text-muted-foreground">
                     No graph nodes matched this search. Try a broader term or remove document/min-weight filters.
@@ -272,7 +337,7 @@ export default function GraphPage() {
             </Card>
           ) : null}
         </div>
-        <Card>
+        <Card className="relative z-0">
           <CardContent className="p-2">
             {nodes.isLoading || edges.isLoading || stats.isLoading ? (
               <div className="flex h-[720px] items-center justify-center text-sm text-muted-foreground">Loading graph...</div>

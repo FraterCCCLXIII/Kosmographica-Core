@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { exportRagAnswer } from "@/lib/exportArtifacts";
 import { useProjects } from "@/lib/hooks/useProjects";
 import type { RAGResponse } from "@/lib/types";
 
@@ -70,7 +71,7 @@ export default function ChatPage() {
         <p className="text-sm text-muted-foreground">Answers must cite retrieved chunks and say when evidence is insufficient.</p>
       </div>
       <ErrorBanner error={query.error} />
-      <div className="space-y-4">
+      <div className="space-y-4 pb-48">
         {messages.map((message, index) => (
           <Card key={index} className={message.role === "user" ? "ml-auto max-w-3xl bg-muted/40" : "max-w-4xl"}>
             <CardHeader>
@@ -83,6 +84,36 @@ export default function ChatPage() {
               <p>{message.content}</p>
               {message.response ? (
                 <>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        exportRagAnswer({
+                          projectId,
+                          question: messages[index - 1]?.content ?? "Question not available",
+                          response: message.response!,
+                          format: "markdown"
+                        })
+                      }
+                    >
+                      Export answer md
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        exportRagAnswer({
+                          projectId,
+                          question: messages[index - 1]?.content ?? "Question not available",
+                          response: message.response!,
+                          format: "json"
+                        })
+                      }
+                    >
+                      Export answer json
+                    </Button>
+                  </div>
                   <div>
                     {message.response.confidence_rationale ? (
                       <p className="mb-3 rounded-md border bg-muted/40 p-3 text-muted-foreground">
@@ -134,7 +165,7 @@ export default function ChatPage() {
           </Card>
         ))}
       </div>
-      <form onSubmit={onSubmit} className="sticky bottom-0 space-y-3 rounded-lg border bg-background p-4">
+      <form onSubmit={onSubmit} className="sticky bottom-0 z-10 space-y-3 rounded-lg border bg-background p-4">
         <div className="flex gap-3">
           <Select value={mode} onValueChange={setMode}>
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>

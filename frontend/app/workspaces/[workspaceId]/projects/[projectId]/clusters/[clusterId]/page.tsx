@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { exportClusterReport } from "@/lib/exportArtifacts";
 import { useCluster } from "@/lib/hooks/useClusters";
 
 export default function ClusterDetailPage() {
@@ -33,6 +34,12 @@ export default function ClusterDetailPage() {
               <Link href={`/workspaces/${workspaceId}/projects/${projectId}/chat`}>
                 <Button>Ask RAG about this cluster</Button>
               </Link>
+              <Button variant="outline" onClick={() => exportClusterReport({ projectId, cluster: cluster.data!, format: "markdown" })}>
+                Export report md
+              </Button>
+              <Button variant="outline" onClick={() => exportClusterReport({ projectId, cluster: cluster.data!, format: "json" })}>
+                Export report json
+              </Button>
             </div>
           </div>
 

@@ -8,6 +8,7 @@ import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { downloadBlob, exportProjectSummary } from "@/lib/exportArtifacts";
 import { useDocuments } from "@/lib/hooks/useDocuments";
 import { useGraphEdges, useGraphNodes } from "@/lib/hooks/useGraph";
 
@@ -27,12 +28,7 @@ export default function ProjectDashboardPage() {
     setExporting(format);
     try {
       const blob = await api.exportProject(projectId, format);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `kosmographica-${projectId}.${format === "csv" ? "zip" : format === "markdown" ? "md" : format}`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(`kosmographica-${projectId}.${format === "csv" ? "zip" : format === "markdown" ? "md" : format}`, blob);
     } finally {
       setExporting(null);
     }
@@ -76,14 +72,30 @@ export default function ProjectDashboardPage() {
       <Card>
         <CardHeader>
           <CardTitle>Exports</CardTitle>
-          <CardDescription>Download project-local data with graph nodes, edges, chunks, claims, and citations.</CardDescription>
+          <CardDescription>Download raw project data or a readable project summary with provenance.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => exportProjectSummary({ projectId, documents: documents.data ?? [], nodes: nodes.data ?? [], edges: edges.data ?? [], format: "markdown" })}
+            >
+              Export summary md
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => exportProjectSummary({ projectId, documents: documents.data ?? [], nodes: nodes.data ?? [], edges: edges.data ?? [], format: "json" })}
+            >
+              Export summary json
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-2">
           {(["json", "graphml", "csv", "markdown"] as const).map((format) => (
             <Button key={format} variant="outline" disabled={Boolean(exporting)} onClick={() => downloadExport(format)}>
               {exporting === format ? "Preparing..." : `Export ${format}`}
             </Button>
           ))}
+          </div>
         </CardContent>
       </Card>
     </div>
