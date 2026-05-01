@@ -32,6 +32,14 @@ export default function CrossProjectPage() {
     queryKey: ["cross-project-links", workspaceId],
     queryFn: () => api.listCrossProjectLinks(workspaceId)
   });
+  const canonicals = useQuery({
+    queryKey: ["global-canonical-entities", workspaceId],
+    queryFn: () => api.listGlobalCanonicalEntities(workspaceId)
+  });
+  const canonicalConcepts = useQuery({
+    queryKey: ["global-canonical-concepts", workspaceId],
+    queryFn: () => api.listGlobalCanonicalConcepts(workspaceId)
+  });
   const confirm = useMutation({
     mutationFn: () => api.confirmCrossProjectLink(workspaceId, { suggestion: selectedSuggestion!, rationale }),
     onSuccess: async () => {
@@ -50,7 +58,10 @@ export default function CrossProjectPage() {
   });
   const promote = useMutation({
     mutationFn: (entityId: string) => api.promoteToGlobalCanonical(workspaceId, entityId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cross-project-links", workspaceId] })
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["cross-project-links", workspaceId] });
+      await queryClient.invalidateQueries({ queryKey: ["global-canonical-entities", workspaceId] });
+    }
   });
 
   return (
@@ -67,7 +78,7 @@ export default function CrossProjectPage() {
         </Link>
       </div>
 
-      <ErrorBanner error={suggestions.error || links.error || confirm.error || reject.error || promote.error} />
+      <ErrorBanner error={suggestions.error || links.error || canonicals.error || canonicalConcepts.error || confirm.error || reject.error || promote.error} />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Suggestions</h2>
@@ -79,10 +90,10 @@ export default function CrossProjectPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <CardTitle>
-                        {suggestion.source_entity.canonical_name} ↔ {suggestion.target_entity.canonical_name}
+                        {suggestion.source_entity.canonical_name} / {suggestion.target_entity.canonical_name}
                       </CardTitle>
                       <CardDescription>
-                        {projectNames.get(suggestion.source_project_id) ?? suggestion.source_project_id} → {projectNames.get(suggestion.target_project_id) ?? suggestion.target_project_id}
+                        {projectNames.get(suggestion.source_project_id) ?? suggestion.source_project_id} -&gt; {projectNames.get(suggestion.target_project_id) ?? suggestion.target_project_id}
                       </CardDescription>
                     </div>
                     <StatusBadge status={`confidence ${suggestion.confidence.toFixed(2)}`} />
@@ -93,11 +104,20 @@ export default function CrossProjectPage() {
                     <SampleChunks title="Source evidence" chunks={suggestion.source_entity.sample_chunks} />
                     <SampleChunks title="Target evidence" chunks={suggestion.target_entity.sample_chunks} />
                   </div>
+                  <div className="rounded-md bg-muted/40 p-3 text-sm">
+                    <p className="font-medium">Why this was suggested</p>
+                    <p className="mt-1 text-muted-foreground">
+                      Both projects contain a {suggestion.source_entity.entity_type} entity with matching names and sampled chunk evidence. Similarity score: {suggestion.similarity_score.toFixed(2)}.
+                    </p>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => setSelectedSuggestion(suggestion)}>Confirm</Button>
                     <Button variant="outline" onClick={() => reject.mutate(suggestion.suggestion_id)}>Reject</Button>
                     <Button variant="secondary" onClick={() => promote.mutate(suggestion.source_entity.id)}>
-                      Promote to Global Canonical
+                      Promote source canonical
+                    </Button>
+                    <Button variant="secondary" onClick={() => promote.mutate(suggestion.target_entity.id)}>
+                      Promote target canonical
                     </Button>
                   </div>
                 </CardContent>
@@ -118,7 +138,7 @@ export default function CrossProjectPage() {
                 <CardHeader>
                   <CardTitle>{link.link_type}</CardTitle>
                   <CardDescription>
-                    {link.source_ref_type}:{link.source_ref_id} → {link.target_ref_type}:{link.target_ref_id}
+                    {projectNames.get(link.source_project_id) ?? link.source_project_id} / {link.source_ref_type}:{link.source_ref_id} -&gt; {projectNames.get(link.target_project_id) ?? link.target_project_id} / {link.target_ref_type}:{link.target_ref_id}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
@@ -136,6 +156,53 @@ export default function CrossProjectPage() {
           <EmptyState title="No confirmed links" description="Confirm suggestions only when the evidence supports a cross-project relationship." />
         )}
       </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Global canonical entities</CardTitle>
+            <CardDescription>Promoted records for workspace-level browsing without merging project-local provenance.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {canonicals.data?.length ? canonicals.data.map((entity) => (
+              <div key={entity.id} className="rounded-md border p-3 text-sm">
+                <p className="font-medium">{entity.canonical_name}</p>
+                <p className="text-muted-foreground">{entity.entity_type} - {entity.aliases.length} alias(es)</p>
+              </div>
+            )) : (
+              <p className="text-sm text-muted-foreground">No canonical entities have been promoted yet.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Global canonical concepts</CardTitle>
+            <CardDescription>Workspace-level concept records for comparative research browsing.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {canonicalConcepts.data?.length ? canonicalConcepts.data.map((concept) => (
+              <div key={concept.id} className="rounded-md border p-3 text-sm">
+                <p className="font-medium">{concept.name}</p>
+                <p className="text-muted-foreground">{concept.aliases.length} alias(es)</p>
+              </div>
+            )) : (
+              <p className="text-sm text-muted-foreground">No canonical concepts have been created yet.</p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Comparative graph boundaries</CardTitle>
+          <CardDescription>Cross-project edges are review records and are only used when explicitly enabled.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>Project graphs stay isolated by default. Confirmed links preserve source and target project IDs so comparative views can show boundaries clearly.</p>
+          <p>Open a project graph from the sidebar to inspect local context, then return here to compare reviewed cross-project relationships.</p>
+        </CardContent>
+      </Card>
 
       <Dialog open={Boolean(selectedSuggestion)} onOpenChange={(open) => !open && setSelectedSuggestion(null)}>
         <DialogContent>

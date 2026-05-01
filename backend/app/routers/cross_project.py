@@ -72,6 +72,23 @@ async def list_global_canonical_entities(workspace_id: uuid.UUID, db: AsyncSessi
     ]
 
 
+@router.get("/canonical/concepts")
+async def list_global_canonical_concepts(workspace_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[dict[str, Any]]:
+    concepts = await CrossProjectService(db, get_embedding_provider()).global_canonical_concepts(workspace_id)
+    return [
+        {
+            "id": str(concept.id),
+            "workspace_id": str(concept.workspace_id),
+            "name": concept.name,
+            "aliases": concept.aliases,
+            "description": concept.description,
+            "metadata": concept.metadata_,
+            "created_at": concept.created_at.isoformat() if concept.created_at else None,
+        }
+        for concept in concepts
+    ]
+
+
 @router.post("/links/confirm")
 async def confirm_link(
     workspace_id: uuid.UUID,

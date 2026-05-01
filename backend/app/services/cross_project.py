@@ -17,6 +17,7 @@ from app.providers.base import EmbeddingProvider
 
 _global_models = importlib.import_module("app.models.global")
 GlobalCanonicalEntity = _global_models.GlobalCanonicalEntity
+GlobalCanonicalConcept = _global_models.GlobalCanonicalConcept
 
 
 class EntitySummary(BaseModel):
@@ -202,6 +203,14 @@ class CrossProjectService:
             select(GlobalCanonicalEntity)
             .where(GlobalCanonicalEntity.workspace_id == workspace_id)
             .order_by(GlobalCanonicalEntity.canonical_name)
+        )
+        return list(result.scalars().all())
+
+    async def global_canonical_concepts(self, workspace_id: uuid.UUID) -> list[GlobalCanonicalConcept]:
+        result = await self.db.execute(
+            select(GlobalCanonicalConcept)
+            .where(GlobalCanonicalConcept.workspace_id == workspace_id)
+            .order_by(GlobalCanonicalConcept.name)
         )
         return list(result.scalars().all())
 

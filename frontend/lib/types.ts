@@ -289,6 +289,16 @@ export interface GlobalCanonicalEntity {
   created_at?: string | null;
 }
 
+export interface GlobalCanonicalConcept {
+  id: UUID;
+  workspace_id: UUID;
+  name: string;
+  aliases: string[];
+  description?: string | null;
+  metadata: JsonObject;
+  created_at?: string | null;
+}
+
 export interface ListResponse<T> {
   message?: string;
   data: {

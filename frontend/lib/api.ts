@@ -10,6 +10,7 @@ import type {
   GraphEdge,
   GraphNode,
   GraphStats,
+  GlobalCanonicalConcept,
   GlobalCanonicalEntity,
   JsonObject,
   LinkSuggestion,
@@ -269,6 +270,9 @@ export const api = {
   },
   async listGlobalCanonicalEntities(workspaceId: UUID): Promise<GlobalCanonicalEntity[]> {
     return request<GlobalCanonicalEntity[]>(`/workspaces/${workspaceId}/cross-project/canonical/entities`);
+  },
+  async listGlobalCanonicalConcepts(workspaceId: UUID): Promise<GlobalCanonicalConcept[]> {
+    return request<GlobalCanonicalConcept[]>(`/workspaces/${workspaceId}/cross-project/canonical/concepts`);
   },
   async exportProject(projectId: UUID, format: "json" | "graphml" | "csv" | "markdown"): Promise<Blob> {
     const response = await fetch(`${API_BASE_URL}/export/${projectId}/${format}`, { cache: "no-store" });
