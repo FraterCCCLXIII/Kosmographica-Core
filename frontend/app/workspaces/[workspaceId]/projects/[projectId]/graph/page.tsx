@@ -5,17 +5,27 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GraphCanvas, type GraphCanvasHandle, type GraphFilters } from "@/components/graph/GraphCanvas";
-import { GraphControls } from "@/components/graph/GraphControls";
+import { GraphControls, type GraphSearchOptions } from "@/components/graph/GraphControls";
 import { NodeSidePanel } from "@/components/graph/NodeSidePanel";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import { DEFAULT_GRAPH_EDGE_TYPES, MAX_EDGES_DEFAULT, useGraphEdges, useGraphNodes, useGraphStats } from "@/lib/hooks/useGraph";
+import { ALL_GRAPH_EDGE_TYPES, DEFAULT_GRAPH_EDGE_TYPES, MAX_EDGES_DEFAULT, useGraphEdges, useGraphNodes, useGraphStats } from "@/lib/hooks/useGraph";
 import type { GraphEdge, GraphNode } from "@/lib/types";
 
 const LARGE_GRAPH_NODE_LIMIT = 1_000;
 const LARGE_GRAPH_EDGE_LIMIT = 2_000;
+
+interface ActiveGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  query: string;
+  seedNodeIds: string[];
+  depth: number;
+  nodeLimit: number;
+  edgeLimit: number;
+}
 
 export default function GraphPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -29,7 +39,13 @@ export default function GraphPage() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
   const [isLayoutRunning, setIsLayoutRunning] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeGraph, setActiveGraph] = useState<{ nodes: GraphNode[]; edges: GraphEdge[]; query: string; seedNodeIds: string[] }>();
+  const [searchOptions, setSearchOptions] = useState<GraphSearchOptions>({
+    edgeTypes: new Set(DEFAULT_GRAPH_EDGE_TYPES),
+    depth: 1,
+    nodeLimit: 250,
+    edgeLimit: MAX_EDGES_DEFAULT
+  });
+  const [activeGraph, setActiveGraph] = useState<ActiveGraph>();
   const [filters, setFilters] = useState<GraphFilters>({
     nodeTypes: new Set(),
     edgeTypes: new Set()
@@ -71,21 +87,26 @@ export default function GraphPage() {
   });
 
   const searchGraph = useMutation({
-    mutationFn: (query: string) =>
+    mutationFn: (input: { query: string; options: GraphSearchOptions }) =>
       api.searchGraph(projectId, {
-        query,
-        depth: 1,
+        query: input.query,
+        depth: input.options.depth,
         seedLimit: 20,
-        nodeLimit: 250,
-        edgeLimit: MAX_EDGES_DEFAULT,
-        edgeTypes: DEFAULT_GRAPH_EDGE_TYPES
+        nodeLimit: input.options.nodeLimit,
+        edgeLimit: input.options.edgeLimit,
+        edgeTypes: Array.from(input.options.edgeTypes),
+        minWeight: parseOptionalNumber(input.options.minWeight),
+        documentId: input.options.documentId?.trim() || undefined
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       setActiveGraph({
         nodes: result.nodes,
         edges: result.edges,
         query: result.query,
-        seedNodeIds: result.seed_node_ids
+        seedNodeIds: result.seed_node_ids,
+        depth: variables.options.depth,
+        nodeLimit: variables.options.nodeLimit,
+        edgeLimit: variables.options.edgeLimit
       });
       setSelectedNodeIds(new Set(result.seed_node_ids));
       setSelectedNodeId(result.seed_node_ids[0]);
@@ -152,16 +173,19 @@ export default function GraphPage() {
           <GraphControls
             nodes={graphNodes}
             edges={graphEdges}
+            availableEdgeTypes={ALL_GRAPH_EDGE_TYPES}
             filters={filters}
             searchQuery={searchQuery}
+            searchOptions={searchOptions}
             isLayoutRunning={isLayoutRunning}
             isSearchLoading={searchGraph.isPending}
             hasSearchResults={Boolean(activeGraph)}
             onFiltersChange={setFilters}
             onSearchChange={setSearchQuery}
+            onSearchOptionsChange={setSearchOptions}
             onSearchSubmit={() => {
               const query = searchQuery.trim();
-              if (query) searchGraph.mutate(query);
+              if (query) searchGraph.mutate({ query, options: searchOptions });
             }}
             onClearSearch={() => {
               setSearchQuery("");
@@ -196,6 +220,44 @@ export default function GraphPage() {
               )}
             </CardContent>
           </Card>
+          {activeGraph ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Search result</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p>
+                  Query <span className="font-medium">{activeGraph.query}</span> returned {activeGraph.seedNodeIds.length} seed node(s),{" "}
+                  {activeGraph.nodes.length} node(s), and {activeGraph.edges.length} edge(s).
+                </p>
+                <p className="text-muted-foreground">
+                  Depth {activeGraph.depth}, node limit {activeGraph.nodeLimit}, edge limit {activeGraph.edgeLimit}.
+                </p>
+                {activeGraph.nodes.length === 0 ? (
+                  <p className="rounded-md border border-dashed p-3 text-muted-foreground">
+                    No graph nodes matched this search. Try a broader term or remove document/min-weight filters.
+                  </p>
+                ) : null}
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  disabled={searchGraph.isPending || searchQuery.trim().length === 0}
+                  onClick={() => {
+                    const nextOptions = {
+                      ...searchOptions,
+                      depth: Math.min(3, searchOptions.depth + 1),
+                      nodeLimit: Math.min(1000, searchOptions.nodeLimit + 250),
+                      edgeLimit: Math.min(2000, searchOptions.edgeLimit + 500)
+                    };
+                    setSearchOptions(nextOptions);
+                    searchGraph.mutate({ query: searchQuery.trim(), options: nextOptions });
+                  }}
+                >
+                  Load more neighborhood
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
         <Card>
           <CardContent className="p-2">
@@ -221,7 +283,7 @@ export default function GraphPage() {
               />
             ) : (
               <div className="flex h-[720px] items-center justify-center text-sm text-muted-foreground">
-                No graph nodes yet. Ingest documents and run graph construction first.
+                {activeGraph ? "No graph nodes matched this search. Try broader terms or fewer filters." : "No graph nodes yet. Ingest documents and run graph construction first."}
               </div>
             )}
           </CardContent>
@@ -242,6 +304,12 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
   const byId = new Map(current.map((item) => [item.id, item]));
   for (const item of incoming) byId.set(item.id, item);
   return Array.from(byId.values());
+}
+
+function parseOptionalNumber(value?: string) {
+  if (!value?.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function LargeGraphWarning({

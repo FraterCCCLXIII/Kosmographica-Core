@@ -126,8 +126,17 @@ export const api = {
   async getProcessingJob(jobId: UUID): Promise<{ data: ProcessingJob }> {
     return request(`/processing/jobs/${jobId}`);
   },
-  async getGraphNodes(projectId: UUID): Promise<GraphNode[]> {
-    return listItems(await request<ListResponse<GraphNode>>(`/projects/${projectId}/graph/nodes`));
+  async getGraphNodes(
+    projectId: UUID,
+    options?: { limit?: number; offset?: number; nodeTypes?: string[]; query?: string }
+  ): Promise<GraphNode[]> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.offset) params.set("offset", String(options.offset));
+    if (options?.nodeTypes?.length) params.set("node_type", options.nodeTypes.join(","));
+    if (options?.query) params.set("query", options.query);
+    const query = params.toString();
+    return listItems(await request<ListResponse<GraphNode>>(`/projects/${projectId}/graph/nodes${query ? `?${query}` : ""}`));
   },
   async getGraphEdges(
     projectId: UUID,
@@ -147,7 +156,17 @@ export const api = {
   },
   async searchGraph(
     projectId: UUID,
-    options: { query: string; depth?: number; seedLimit?: number; nodeLimit?: number; edgeLimit?: number; edgeTypes?: string[]; nodeTypes?: string[] }
+    options: {
+      query: string;
+      depth?: number;
+      seedLimit?: number;
+      nodeLimit?: number;
+      edgeLimit?: number;
+      edgeTypes?: string[];
+      nodeTypes?: string[];
+      minWeight?: number;
+      documentId?: UUID;
+    }
   ): Promise<{ nodes: GraphNode[]; edges: GraphEdge[]; seed_node_ids: UUID[]; query: string }> {
     const params = new URLSearchParams({ query: options.query });
     if (options.depth !== undefined) params.set("depth", String(options.depth));
@@ -156,6 +175,8 @@ export const api = {
     if (options.edgeLimit !== undefined) params.set("edge_limit", String(options.edgeLimit));
     if (options.edgeTypes?.length) params.set("edge_type", options.edgeTypes.join(","));
     if (options.nodeTypes?.length) params.set("node_type", options.nodeTypes.join(","));
+    if (options.minWeight !== undefined) params.set("min_weight", String(options.minWeight));
+    if (options.documentId) params.set("document_id", options.documentId);
     const response = await request<{ data: { nodes: GraphNode[]; edges: GraphEdge[]; seed_node_ids: UUID[]; query: string } }>(
       `/projects/${projectId}/graph/search?${params.toString()}`
     );

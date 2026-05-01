@@ -9,16 +9,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { GraphEdge, GraphNode } from "@/lib/types";
 
+export interface GraphSearchOptions {
+  edgeTypes: Set<string>;
+  depth: number;
+  nodeLimit: number;
+  edgeLimit: number;
+  minWeight?: string;
+  documentId?: string;
+}
+
 interface GraphControlsProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  availableEdgeTypes: string[];
   filters: GraphFilters;
   searchQuery: string;
+  searchOptions: GraphSearchOptions;
   isLayoutRunning: boolean;
   isSearchLoading?: boolean;
   hasSearchResults?: boolean;
   onFiltersChange: (filters: GraphFilters) => void;
   onSearchChange: (value: string) => void;
+  onSearchOptionsChange: (options: GraphSearchOptions) => void;
   onSearchSubmit: () => void;
   onClearSearch: () => void;
   onZoomIn: () => void;
@@ -30,13 +42,16 @@ interface GraphControlsProps {
 export function GraphControls({
   nodes,
   edges,
+  availableEdgeTypes,
   filters,
   searchQuery,
+  searchOptions,
   isLayoutRunning,
   isSearchLoading = false,
   hasSearchResults = false,
   onFiltersChange,
   onSearchChange,
+  onSearchOptionsChange,
   onSearchSubmit,
   onClearSearch,
   onZoomIn,
@@ -45,7 +60,8 @@ export function GraphControls({
   onToggleLayout
 }: GraphControlsProps) {
   const nodeTypes = unique(nodes.map((node) => node.node_type));
-  const edgeTypes = unique(edges.map((edge) => edge.edge_type));
+  const edgeTypes = unique(availableEdgeTypes);
+  const renderedEdgeTypes = unique(edges.map((edge) => edge.edge_type));
   const traditions = unique(nodes.map((node) => stringMetadata(node.metadata.tradition)).filter(Boolean));
   const regions = unique(nodes.map((node) => stringMetadata(node.metadata.region)).filter(Boolean));
 
@@ -78,6 +94,54 @@ export function GraphControls({
           <p className="text-xs text-muted-foreground">
             Search loads a bounded neighborhood around matching graph nodes instead of rendering the full project graph.
           </p>
+          <Checklist
+            title="Search edge types"
+            values={edgeTypes}
+            selected={searchOptions.edgeTypes}
+            onToggle={(value) => onSearchOptionsChange({ ...searchOptions, edgeTypes: toggleSet(searchOptions.edgeTypes, value) })}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label="Depth"
+              min={0}
+              max={3}
+              value={searchOptions.depth}
+              onChange={(depth) => onSearchOptionsChange({ ...searchOptions, depth })}
+            />
+            <NumberField
+              label="Node limit"
+              min={1}
+              max={1000}
+              value={searchOptions.nodeLimit}
+              onChange={(nodeLimit) => onSearchOptionsChange({ ...searchOptions, nodeLimit })}
+            />
+            <NumberField
+              label="Edge limit"
+              min={1}
+              max={2000}
+              value={searchOptions.edgeLimit}
+              onChange={(edgeLimit) => onSearchOptionsChange({ ...searchOptions, edgeLimit })}
+            />
+            <div className="space-y-1">
+              <Label htmlFor="graph-min-weight">Min weight</Label>
+              <Input
+                id="graph-min-weight"
+                inputMode="decimal"
+                value={searchOptions.minWeight ?? ""}
+                onChange={(event) => onSearchOptionsChange({ ...searchOptions, minWeight: event.target.value })}
+                placeholder="Any"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="graph-document-id">Document scope</Label>
+            <Input
+              id="graph-document-id"
+              value={searchOptions.documentId ?? ""}
+              onChange={(event) => onSearchOptionsChange({ ...searchOptions, documentId: event.target.value })}
+              placeholder="Optional document UUID"
+            />
+          </div>
         </form>
 
         <div className="grid grid-cols-2 gap-2">
@@ -98,7 +162,7 @@ export function GraphControls({
         />
         <Checklist
           title="Edge types"
-          values={edgeTypes}
+          values={renderedEdgeTypes}
           selected={filters.edgeTypes}
           onToggle={(value) => onFiltersChange({ ...filters, edgeTypes: toggleSet(filters.edgeTypes, value) })}
         />
@@ -120,6 +184,36 @@ export function GraphControls({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function NumberField({
+  label,
+  min,
+  max,
+  value,
+  onChange
+}: {
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label>{label}</Label>
+      <Input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          if (Number.isFinite(next)) onChange(Math.min(max, Math.max(min, next)));
+        }}
+      />
+    </div>
   );
 }
 

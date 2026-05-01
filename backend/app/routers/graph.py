@@ -13,13 +13,27 @@ router = APIRouter(tags=["graph"])
 
 
 @router.get("/projects/{project_id}/graph/nodes")
-async def get_project_graph_nodes(project_id: UUID, db: AsyncSession = Depends(get_db)) -> dict[str, object]:
-    return await _list_nodes(project_id, db)
+async def get_project_graph_nodes(
+    project_id: UUID,
+    limit: int = Query(500, ge=1, le=5_000),
+    offset: int = Query(0, ge=0),
+    node_type: str | None = None,
+    query: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    return await _list_nodes(project_id, db, limit=limit, offset=offset, node_type=node_type, query=query)
 
 
 @router.get("/graph/nodes")
-async def get_graph_nodes(project_id: UUID = Query(...), db: AsyncSession = Depends(get_db)) -> dict[str, object]:
-    return await _list_nodes(project_id, db)
+async def get_graph_nodes(
+    project_id: UUID = Query(...),
+    limit: int = Query(500, ge=1, le=5_000),
+    offset: int = Query(0, ge=0),
+    node_type: str | None = None,
+    query: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    return await _list_nodes(project_id, db, limit=limit, offset=offset, node_type=node_type, query=query)
 
 
 @router.get("/projects/{project_id}/graph/edges")
@@ -90,6 +104,8 @@ async def search_project_graph(
     seed_limit: int = Query(25, ge=1, le=100),
     node_limit: int = Query(250, ge=1, le=1_000),
     edge_limit: int = Query(500, ge=1, le=2_000),
+    min_weight: float | None = Query(None),
+    document_id: UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, object]:
     return await _search_graph(
@@ -102,6 +118,8 @@ async def search_project_graph(
         seed_limit=seed_limit,
         node_limit=node_limit,
         edge_limit=edge_limit,
+        min_weight=min_weight,
+        document_id=document_id,
     )
 
 
@@ -115,6 +133,8 @@ async def search_graph(
     seed_limit: int = Query(25, ge=1, le=100),
     node_limit: int = Query(250, ge=1, le=1_000),
     edge_limit: int = Query(500, ge=1, le=2_000),
+    min_weight: float | None = Query(None),
+    document_id: UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, object]:
     return await _search_graph(
@@ -127,16 +147,44 @@ async def search_graph(
         seed_limit=seed_limit,
         node_limit=node_limit,
         edge_limit=edge_limit,
+        min_weight=min_weight,
+        document_id=document_id,
     )
 
 
-async def _list_nodes(project_id: UUID, db: AsyncSession) -> dict[str, object]:
+async def _list_nodes(
+    project_id: UUID,
+    db: AsyncSession,
+    *,
+    limit: int,
+    offset: int,
+    node_type: str | None,
+    query: str | None,
+) -> dict[str, object]:
     await _ensure_project(project_id, db)
-    result = await db.execute(select(GraphNode).where(GraphNode.project_id == project_id).order_by(GraphNode.created_at))
+    node_types = _parse_csv(node_type)
+    statement = select(GraphNode).where(GraphNode.project_id == project_id)
+    count_statement = select(func.count()).select_from(GraphNode).where(GraphNode.project_id == project_id)
+    if node_types:
+        statement = statement.where(GraphNode.node_type.in_(node_types))
+        count_statement = count_statement.where(GraphNode.node_type.in_(node_types))
+    if query:
+        pattern = f"%{query.strip()}%"
+        statement = statement.where(or_(GraphNode.label.ilike(pattern), cast(GraphNode.metadata_, Text).ilike(pattern)))
+        count_statement = count_statement.where(or_(GraphNode.label.ilike(pattern), cast(GraphNode.metadata_, Text).ilike(pattern)))
+    result = await db.execute(statement.order_by(GraphNode.created_at).offset(offset).limit(limit))
+    total = (await db.execute(count_statement)).scalar_one()
     nodes = list(result.scalars().all())
     return {
         "message": "Graph nodes listed.",
-        "data": {"project_id": str(project_id), "items": await _serialize_nodes(nodes, db)},
+        "data": {
+            "project_id": str(project_id),
+            "items": await _serialize_nodes(nodes, db),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "node_types": node_types,
+        },
     }
 
 
@@ -272,6 +320,8 @@ async def _search_graph(
     seed_limit: int,
     node_limit: int,
     edge_limit: int,
+    min_weight: float | None,
+    document_id: UUID | None,
 ) -> dict[str, object]:
     await _ensure_project(project_id, db)
     normalized_query = query.strip()
@@ -302,6 +352,10 @@ async def _search_graph(
         )
         if edge_types:
             edge_statement = edge_statement.where(GraphEdge.edge_type.in_(edge_types))
+        if min_weight is not None:
+            edge_statement = edge_statement.where(GraphEdge.weight >= min_weight)
+        if document_id is not None:
+            edge_statement = edge_statement.join_from(GraphEdge, Chunk, GraphEdge.evidence_chunk_id == Chunk.id).where(Chunk.document_id == document_id)
         remaining_edges = edge_limit - len(edge_ids)
         edge_result = await db.execute(edge_statement.order_by(GraphEdge.weight.desc(), GraphEdge.created_at).limit(remaining_edges))
         next_frontier: set[UUID] = set()
@@ -332,6 +386,8 @@ async def _search_graph(
             "edges": [_serialize_edge(edge) for edge in edges],
             "limits": {"seed_limit": seed_limit, "node_limit": node_limit, "edge_limit": edge_limit, "depth": depth},
             "edge_types": edge_types,
+            "min_weight": min_weight,
+            "document_id": str(document_id) if document_id else None,
         },
     }
 
