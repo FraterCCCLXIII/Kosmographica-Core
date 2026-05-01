@@ -201,6 +201,17 @@ export interface ProcessingTimeline {
   stages: ProcessingStage[];
 }
 
+export interface Cluster {
+  id: UUID;
+  project_id: UUID;
+  label: string;
+  description?: string | null;
+  algorithm: string;
+  metadata: JsonObject;
+  member_count?: number;
+  created_at?: string | null;
+}
+
 export interface ProcessingJob {
   id?: UUID;
   job_id?: UUID;

@@ -1,5 +1,6 @@
 import type {
   Chunk,
+  Cluster,
   Document,
   DocumentGraphSummary,
   DocumentStatusResponse,
@@ -152,6 +153,17 @@ export const api = {
   },
   async getEntityDetail(entityId: UUID): Promise<EntityDetail> {
     const response = await request<{ data: EntityDetail }>(`/entities/${entityId}/detail`);
+    return response.data;
+  },
+  async listClusters(projectId: UUID): Promise<Cluster[]> {
+    return listItems(await request<ListResponse<Cluster>>(`/projects/${projectId}/clusters`));
+  },
+  async generateClusters(projectId: UUID): Promise<Cluster[]> {
+    const response = await request<{ data: { items: Cluster[] } }>(`/projects/${projectId}/clusters/generate`, { method: "POST" });
+    return response.data.items;
+  },
+  async getCluster(clusterId: UUID): Promise<Cluster> {
+    const response = await request<{ data: Cluster }>(`/clusters/${clusterId}`);
     return response.data;
   },
   async getProcessingJob(jobId: UUID): Promise<{ data: ProcessingJob }> {

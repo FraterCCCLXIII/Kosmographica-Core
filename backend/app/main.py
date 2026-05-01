@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import ensure_workspace_tables, verify_database_connection
-from app.routers import cross_project, documents, entities, export, graph, processing, research_notes, search, workspaces
+from app.routers import clusters, cross_project, documents, entities, export, graph, processing, research_notes, search, workspaces
 
 
 @asynccontextmanager
@@ -38,6 +38,7 @@ app.include_router(graph.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(cross_project.router, prefix="/api/v1")
+app.include_router(clusters.router, prefix="/api/v1")
 
 
 @app.get("/health")
