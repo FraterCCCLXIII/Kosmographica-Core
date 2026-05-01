@@ -86,7 +86,7 @@ export default function DocumentsPage() {
         >
           <UploadCloud className="h-8 w-8 text-muted-foreground" />
           <div>
-            <p className="font-medium">Drag PDF, DOCX, HTML, TXT, or MD files here</p>
+            <p className="font-medium">Drag PDF, EPUB, DOCX, HTML, TXT, MD, CSV, JSON, or XML files here</p>
             <p className="text-sm text-muted-foreground">Files are saved locally and processed asynchronously.</p>
           </div>
           <Button disabled={upload.isPending} onClick={() => document.getElementById("file-upload")?.click()}>
@@ -97,7 +97,7 @@ export default function DocumentsPage() {
             className="hidden"
             type="file"
             multiple
-            accept=".pdf,.docx,.html,.htm,.txt,.md"
+            accept=".pdf,.epub,.docx,.html,.htm,.txt,.text,.md,.markdown,.log,.csv,.tsv,.json,.xml,.rst"
             onChange={(event) => {
               void uploadFiles(Array.from(event.target.files ?? []));
               event.currentTarget.value = "";

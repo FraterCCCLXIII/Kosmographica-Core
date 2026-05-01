@@ -1,7 +1,10 @@
 import logging
+import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import unquote, urldefrag
+from xml.etree import ElementTree
 
 import fitz
 from bs4 import BeautifulSoup
@@ -21,7 +24,21 @@ class ParsedDocument:
 
 
 class DocumentParser:
-    supported_source_types = {"pdf", "docx", "html", "txt", "md"}
+    supported_source_types = {
+        "pdf",
+        "docx",
+        "html",
+        "epub",
+        "txt",
+        "md",
+        "text",
+        "log",
+        "csv",
+        "tsv",
+        "json",
+        "xml",
+        "rst",
+    }
 
     def parse(self, file_path: str | Path, source_type: str) -> ParsedDocument:
         normalized_source_type = source_type.lower().strip()
@@ -34,6 +51,8 @@ class DocumentParser:
             return self._parse_docx(path)
         if normalized_source_type == "html":
             return self._parse_html(path)
+        if normalized_source_type == "epub":
+            return self._parse_epub(path)
         return self._parse_plain_text(path, normalized_source_type)
 
     def _parse_pdf(self, path: Path) -> ParsedDocument:
@@ -93,6 +112,31 @@ class DocumentParser:
             metadata={"source_type": "html"},
         )
 
+    def _parse_epub(self, path: Path) -> ParsedDocument:
+        with zipfile.ZipFile(path) as archive:
+            rootfile_path = self._epub_rootfile_path(archive)
+            package = ElementTree.fromstring(archive.read(rootfile_path))
+            metadata = self._epub_metadata(package)
+            item_paths = self._epub_spine_item_paths(package, rootfile_path)
+            text_parts = [
+                self._html_to_text(archive.read(item_path).decode("utf-8", errors="replace"))
+                for item_path in item_paths
+            ]
+
+        raw_text = "\n\n".join(part for part in text_parts if part).strip()
+        return ParsedDocument(
+            raw_text=raw_text,
+            title=metadata.get("title") or path.stem,
+            author=metadata.get("author"),
+            date=metadata.get("date"),
+            language=metadata.get("language"),
+            metadata={
+                "source_type": "epub",
+                "item_count": len(item_paths),
+                **{key: value for key, value in metadata.items() if value},
+            },
+        )
+
     def _parse_plain_text(self, path: Path, source_type: str) -> ParsedDocument:
         return ParsedDocument(
             raw_text=self._read_text(path),
@@ -106,6 +150,65 @@ class DocumentParser:
         except UnicodeDecodeError as exc:
             logger.warning("UTF-8 decode failed for %s, retrying with replacement characters: %s", path, exc)
             return path.read_text(encoding="utf-8", errors="replace")
+
+    def _html_to_text(self, html: str) -> str:
+        soup = BeautifulSoup(html, "html.parser")
+        for element in soup(["script", "style", "noscript"]):
+            element.decompose()
+        lines = [
+            line.strip()
+            for line in soup.get_text(separator="\n").splitlines()
+            if line.strip()
+        ]
+        return "\n".join(lines)
+
+    def _epub_rootfile_path(self, archive: zipfile.ZipFile) -> str:
+        container = ElementTree.fromstring(archive.read("META-INF/container.xml"))
+        rootfile = container.find(".//{*}rootfile")
+        full_path = rootfile.get("full-path") if rootfile is not None else None
+        if not full_path:
+            raise ValueError("EPUB container does not declare a rootfile")
+        return full_path
+
+    def _epub_spine_item_paths(self, package: ElementTree.Element, rootfile_path: str) -> list[str]:
+        manifest = {
+            item.get("id"): item.get("href")
+            for item in package.findall(".//{*}manifest/{*}item")
+            if item.get("id") and item.get("href")
+        }
+        spine_ids = [
+            itemref.get("idref")
+            for itemref in package.findall(".//{*}spine/{*}itemref")
+            if itemref.get("idref")
+        ]
+        hrefs = [manifest[idref] for idref in spine_ids if idref in manifest]
+        if not hrefs:
+            hrefs = [
+                item.get("href")
+                for item in package.findall(".//{*}manifest/{*}item")
+                if item.get("href")
+                and item.get("media-type") in {"application/xhtml+xml", "text/html"}
+            ]
+        package_dir = PurePosixPath(rootfile_path).parent
+        return [self._epub_item_path(package_dir, href) for href in hrefs if href]
+
+    def _epub_metadata(self, package: ElementTree.Element) -> dict[str, str | None]:
+        return {
+            "title": self._epub_metadata_text(package, "title"),
+            "author": self._epub_metadata_text(package, "creator"),
+            "date": self._epub_metadata_text(package, "date"),
+            "language": self._epub_metadata_text(package, "language"),
+        }
+
+    @staticmethod
+    def _epub_item_path(package_dir: PurePosixPath, href: str) -> str:
+        path = unquote(urldefrag(href).url)
+        return str(package_dir / path) if str(package_dir) != "." else path
+
+    @staticmethod
+    def _epub_metadata_text(package: ElementTree.Element, name: str) -> str | None:
+        element = package.find(f".//{{*}}metadata/{{*}}{name}")
+        return element.text.strip() if element is not None and element.text else None
 
     @staticmethod
     def _meta_content(soup: BeautifulSoup, name: str) -> str | None:

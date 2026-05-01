@@ -17,14 +17,37 @@ from app.workers.ingestion import process_document, process_document_now
 
 router = APIRouter(tags=["documents"])
 
-SUPPORTED_SOURCE_TYPES = {"pdf", "docx", "html", "txt", "md"}
+SUPPORTED_SOURCE_TYPES = {
+    "pdf",
+    "docx",
+    "html",
+    "epub",
+    "txt",
+    "md",
+    "text",
+    "log",
+    "csv",
+    "tsv",
+    "json",
+    "xml",
+    "rst",
+}
 EXTENSION_TO_SOURCE_TYPE = {
     ".pdf": "pdf",
     ".docx": "docx",
+    ".epub": "epub",
     ".html": "html",
     ".htm": "html",
     ".txt": "txt",
+    ".text": "text",
     ".md": "md",
+    ".markdown": "md",
+    ".log": "log",
+    ".csv": "csv",
+    ".tsv": "tsv",
+    ".json": "json",
+    ".xml": "xml",
+    ".rst": "rst",
 }
 
 
