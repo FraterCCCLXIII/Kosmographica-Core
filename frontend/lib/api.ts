@@ -1,6 +1,10 @@
 import type {
+  Chunk,
   Document,
+  DocumentGraphSummary,
   DocumentStatusResponse,
+  Entity,
+  EntityDetail,
   CrossProjectLink,
   GraphEdge,
   GraphNode,
@@ -100,6 +104,17 @@ export const api = {
     const response = await request<{ data: Document }>(`/documents/${documentId}`);
     return response.data;
   },
+  async getDocumentChunks(documentId: UUID, options?: { limit?: number; offset?: number }): Promise<Chunk[]> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.offset) params.set("offset", String(options.offset));
+    const query = params.toString();
+    return listItems(await request<ListResponse<Chunk>>(`/documents/${documentId}/chunks${query ? `?${query}` : ""}`));
+  },
+  async getDocumentGraphSummary(documentId: UUID): Promise<DocumentGraphSummary> {
+    const response = await request<{ data: DocumentGraphSummary }>(`/documents/${documentId}/graph-summary`);
+    return response.data;
+  },
   async deleteDocument(documentId: UUID): Promise<void> {
     await request(`/documents/${documentId}`, { method: "DELETE" });
   },
@@ -122,6 +137,13 @@ export const api = {
   },
   async triggerProcessing(documentId: UUID): Promise<{ data: JsonObject }> {
     return request(`/processing/documents/${documentId}`, { method: "POST" });
+  },
+  async listEntities(projectId: UUID): Promise<Entity[]> {
+    return listItems(await request<ListResponse<Entity>>(`/projects/${projectId}/entities`));
+  },
+  async getEntityDetail(entityId: UUID): Promise<EntityDetail> {
+    const response = await request<{ data: EntityDetail }>(`/entities/${entityId}/detail`);
+    return response.data;
   },
   async getProcessingJob(jobId: UUID): Promise<{ data: ProcessingJob }> {
     return request(`/processing/jobs/${jobId}`);

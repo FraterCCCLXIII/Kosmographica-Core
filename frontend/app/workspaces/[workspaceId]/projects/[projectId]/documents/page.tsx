@@ -2,6 +2,7 @@
 
 import { UploadCloud } from "lucide-react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { DragEvent, useState } from "react";
 
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -26,7 +27,7 @@ function UploadProgress({ documentId }: { documentId?: string }) {
 }
 
 export default function DocumentsPage() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { workspaceId, projectId } = useParams<{ workspaceId: string; projectId: string }>();
   const [latestDocumentId, setLatestDocumentId] = useState<string>();
   const documents = useDocuments(projectId);
   const upload = useUploadDocument(projectId);
@@ -88,12 +89,26 @@ export default function DocumentsPage() {
         <CardContent className="space-y-3">
           {documents.data?.length ? (
             documents.data.map((document) => (
-              <div key={document.id} className="flex items-center justify-between rounded-md border p-3">
+              <div key={document.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                 <div>
                   <p className="font-medium">{document.title}</p>
                   <p className="text-sm text-muted-foreground">{document.source_type} · {document.id}</p>
                 </div>
-                <StatusBadge status={document.status} />
+                <div className="flex items-center gap-2">
+                  <Link
+                    className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
+                    href={`/workspaces/${workspaceId}/projects/${projectId}/documents/${document.id}`}
+                  >
+                    Inspect
+                  </Link>
+                  <Link
+                    className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
+                    href={`/workspaces/${workspaceId}/projects/${projectId}/graph?query=${encodeURIComponent(document.title)}&documentId=${document.id}`}
+                  >
+                    Graph
+                  </Link>
+                  <StatusBadge status={document.status} />
+                </div>
               </div>
             ))
           ) : (

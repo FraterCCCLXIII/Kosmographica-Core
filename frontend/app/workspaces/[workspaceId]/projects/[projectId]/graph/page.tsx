@@ -32,6 +32,7 @@ export default function GraphPage() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const canvasRef = useRef<GraphCanvasHandle | null>(null);
+  const initialGraphSearchRef = useRef<string | null>(null);
   const nodes = useGraphNodes(projectId);
   const edges = useGraphEdges(projectId);
   const stats = useGraphStats(projectId);
@@ -112,6 +113,18 @@ export default function GraphPage() {
       setSelectedNodeId(result.seed_node_ids[0]);
     }
   });
+
+  useEffect(() => {
+    const query = searchParams.get("query")?.trim();
+    const documentId = searchParams.get("documentId")?.trim();
+    const key = `${query ?? ""}:${documentId ?? ""}`;
+    if (!query || initialGraphSearchRef.current === key) return;
+    initialGraphSearchRef.current = key;
+    const nextOptions = documentId ? { ...searchOptions, documentId } : searchOptions;
+    setSearchQuery(query);
+    setSearchOptions(nextOptions);
+    searchGraph.mutate({ query, options: nextOptions });
+  }, [searchParams, searchGraph, searchOptions]);
 
   const saveResearchMap = useMutation({
     mutationFn: () =>

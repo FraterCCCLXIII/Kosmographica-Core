@@ -166,6 +166,24 @@ export interface RAGResponse {
   confidence: "high" | "medium" | "low" | "insufficient_evidence";
 }
 
+export interface EntityDetail {
+  entity: Entity;
+  graph_node?: GraphNode | null;
+  chunks: Chunk[];
+  claims: Claim[];
+  connected_nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface DocumentGraphSummary {
+  document_id: UUID;
+  node_counts: Record<string, number>;
+  edge_counts: Record<string, number>;
+  top_entities: Entity[];
+  top_concepts: Concept[];
+  top_claims: Claim[];
+}
+
 export interface ProcessingJob {
   id?: UUID;
   job_id?: UUID;

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import ensure_workspace_tables, verify_database_connection
-from app.routers import cross_project, documents, export, graph, processing, research_notes, search, workspaces
+from app.routers import cross_project, documents, entities, export, graph, processing, research_notes, search, workspaces
 
 
 @asynccontextmanager
@@ -31,6 +31,7 @@ app.add_middleware(
 
 app.include_router(workspaces.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(entities.router, prefix="/api/v1")
 app.include_router(processing.router, prefix="/api/v1")
 app.include_router(research_notes.router, prefix="/api/v1")
 app.include_router(graph.router, prefix="/api/v1")

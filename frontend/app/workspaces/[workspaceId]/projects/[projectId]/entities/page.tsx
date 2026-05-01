@@ -6,12 +6,11 @@ import Link from "next/link";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useGraphNodes } from "@/lib/hooks/useGraph";
+import { useEntities } from "@/lib/hooks/useEntities";
 
 export default function EntitiesPage() {
   const { workspaceId, projectId } = useParams<{ workspaceId: string; projectId: string }>();
-  const nodes = useGraphNodes(projectId);
-  const entities = nodes.data?.filter((node) => node.node_type === "entity") ?? [];
+  const entities = useEntities(projectId);
 
   return (
     <div className="space-y-6">
@@ -19,18 +18,24 @@ export default function EntitiesPage() {
         <h1 className="text-2xl font-semibold">Entities</h1>
         <p className="text-sm text-muted-foreground">Entity graph nodes extracted from cited chunks.</p>
       </div>
-      <ErrorBanner error={nodes.error} />
-      {entities.length ? (
+      <ErrorBanner error={entities.error} />
+      {entities.data?.length ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {entities.map((entity) => (
+          {entities.data.map((entity) => (
             <Card key={entity.id}>
-              <CardHeader><CardTitle>{entity.label}</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{entity.canonical_name}</CardTitle></CardHeader>
               <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <p>{String(entity.metadata.entity_type ?? "entity")}</p>
+                <p>{entity.entity_type}</p>
                 <p>{Array.isArray(entity.metadata.source_chunk_ids) ? entity.metadata.source_chunk_ids.length : 0} source chunk(s)</p>
                 <Link
+                  className="mr-2 inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
+                  href={`/workspaces/${workspaceId}/projects/${projectId}/entities/${entity.id}`}
+                >
+                  Inspect
+                </Link>
+                <Link
                   className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
-                  href={`/workspaces/${workspaceId}/projects/${projectId}/graph?nodeId=${entity.id}`}
+                  href={`/workspaces/${workspaceId}/projects/${projectId}/graph?query=${encodeURIComponent(entity.canonical_name)}`}
                 >
                   View in graph
                 </Link>

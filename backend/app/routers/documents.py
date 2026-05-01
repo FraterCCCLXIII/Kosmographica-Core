@@ -2,12 +2,14 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.database import get_db
-from app.models.document import Document, DocumentStatus
+from app.models.document import Chunk, Document, DocumentStatus
+from app.models.graph import GraphEdge, GraphNode
+from app.models.knowledge import Claim, Concept, Entity
 from app.models.jobs import ProcessingJob, ProcessingJobStatus
 from app.models.workspace import Project
 from app.workers.ingestion import process_document, process_document_now
@@ -132,6 +134,76 @@ async def get_document_status(document_id: uuid.UUID, db: AsyncSession = Depends
     }
 
 
+@router.get("/documents/{document_id}/chunks")
+async def list_document_chunks(
+    document_id: uuid.UUID,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    document = await db.get(Document, document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
+    result = await db.execute(
+        select(Chunk)
+        .where(Chunk.document_id == document_id, Chunk.project_id == document.project_id)
+        .order_by(Chunk.chunk_index)
+        .offset(offset)
+        .limit(limit)
+    )
+    total = (await db.execute(select(func.count()).select_from(Chunk).where(Chunk.document_id == document_id))).scalar_one()
+    return {
+        "message": "Document chunks listed.",
+        "data": {
+            "document_id": str(document_id),
+            "items": [_serialize_chunk(chunk) for chunk in result.scalars()],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
+
+
+@router.get("/documents/{document_id}/graph-summary")
+async def get_document_graph_summary(document_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, object]:
+    document = await db.get(Document, document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
+
+    chunk_ids_result = await db.execute(select(Chunk.id).where(Chunk.document_id == document_id, Chunk.project_id == document.project_id))
+    chunk_ids = list(chunk_ids_result.scalars().all())
+    node_type_rows = await db.execute(
+        select(GraphNode.node_type, func.count())
+        .where(GraphNode.project_id == document.project_id, GraphNode.ref_id.in_([document_id, *chunk_ids]))
+        .group_by(GraphNode.node_type)
+    )
+    edge_type_rows = await db.execute(
+        select(GraphEdge.edge_type, func.count())
+        .where(GraphEdge.project_id == document.project_id, GraphEdge.evidence_chunk_id.in_(chunk_ids))
+        .group_by(GraphEdge.edge_type)
+    )
+    entity_result = await db.execute(select(Entity).where(Entity.project_id == document.project_id).order_by(Entity.canonical_name))
+    chunk_id_strings = {str(chunk_id) for chunk_id in chunk_ids}
+    entities = [
+        entity
+        for entity in entity_result.scalars().all()
+        if chunk_id_strings.intersection({str(value) for value in entity.metadata_.get("source_chunk_ids", [])})
+    ][:25]
+    concepts = await db.execute(select(Concept).where(Concept.project_id == document.project_id).order_by(Concept.name).limit(25))
+    claims = await db.execute(select(Claim).where(Claim.project_id == document.project_id, Claim.chunk_id.in_(chunk_ids)).order_by(Claim.confidence.desc()).limit(25))
+    return {
+        "message": "Document graph summary.",
+        "data": {
+            "document_id": str(document_id),
+            "node_counts": {node_type: count for node_type, count in node_type_rows.all()},
+            "edge_counts": {edge_type: count for edge_type, count in edge_type_rows.all()},
+            "top_entities": [_serialize_entity(entity) for entity in entities],
+            "top_concepts": [_serialize_concept(concept) for concept in concepts.scalars()],
+            "top_claims": [_serialize_claim(claim) for claim in claims.scalars()],
+        },
+    }
+
+
 @router.delete("/documents/{document_id}")
 async def delete_document(document_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, object]:
     document = await db.get(Document, document_id)
@@ -179,3 +251,57 @@ def _serialize_document(document: Document, *, include_text: bool = False) -> di
     if include_text:
         data["raw_text"] = document.raw_text
     return data
+
+
+def _serialize_chunk(chunk: Chunk) -> dict[str, object]:
+    return {
+        "id": str(chunk.id),
+        "project_id": str(chunk.project_id),
+        "document_id": str(chunk.document_id),
+        "chunk_index": chunk.chunk_index,
+        "text": chunk.text,
+        "token_count": chunk.token_count,
+        "citation": chunk.citation,
+        "metadata": chunk.metadata_,
+        "created_at": chunk.created_at.isoformat() if chunk.created_at else None,
+    }
+
+
+def _serialize_entity(entity: Entity) -> dict[str, object]:
+    return {
+        "id": str(entity.id),
+        "project_id": str(entity.project_id),
+        "canonical_name": entity.canonical_name,
+        "entity_type": entity.entity_type,
+        "aliases": entity.aliases,
+        "description": entity.description,
+        "metadata": entity.metadata_,
+        "created_at": entity.created_at.isoformat() if entity.created_at else None,
+    }
+
+
+def _serialize_concept(concept: Concept) -> dict[str, object]:
+    return {
+        "id": str(concept.id),
+        "project_id": str(concept.project_id),
+        "name": concept.name,
+        "description": concept.description,
+        "aliases": concept.aliases,
+        "metadata": concept.metadata_,
+        "created_at": concept.created_at.isoformat() if concept.created_at else None,
+    }
+
+
+def _serialize_claim(claim: Claim) -> dict[str, object]:
+    return {
+        "id": str(claim.id),
+        "project_id": str(claim.project_id),
+        "chunk_id": str(claim.chunk_id),
+        "subject": claim.subject,
+        "predicate": claim.predicate,
+        "object": claim.object,
+        "confidence": claim.confidence,
+        "evidence_text": claim.evidence_text,
+        "metadata": claim.metadata_,
+        "created_at": claim.created_at.isoformat() if claim.created_at else None,
+    }

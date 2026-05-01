@@ -19,6 +19,30 @@ export function useDocumentStatus(documentId?: UUID) {
   });
 }
 
+export function useDocument(documentId?: UUID) {
+  return useQuery({
+    queryKey: ["document", documentId],
+    queryFn: () => api.getDocument(documentId!),
+    enabled: Boolean(documentId)
+  });
+}
+
+export function useDocumentChunks(documentId?: UUID) {
+  return useQuery({
+    queryKey: ["document-chunks", documentId],
+    queryFn: () => api.getDocumentChunks(documentId!, { limit: 100 }),
+    enabled: Boolean(documentId)
+  });
+}
+
+export function useDocumentGraphSummary(documentId?: UUID) {
+  return useQuery({
+    queryKey: ["document-graph-summary", documentId],
+    queryFn: () => api.getDocumentGraphSummary(documentId!),
+    enabled: Boolean(documentId)
+  });
+}
+
 export function useUploadDocument(projectId: UUID) {
   const queryClient = useQueryClient();
   return useMutation({
