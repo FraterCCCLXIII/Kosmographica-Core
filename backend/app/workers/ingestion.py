@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import dramatiq
@@ -38,9 +39,9 @@ async def _process_document(document_id: uuid.UUID, job_id: uuid.UUID | None) ->
 
         try:
             await _mark_running(db, document, job)
-            await _run_step(db, job, "parse", _parse_document(db, document))
-            await _run_step(db, job, "chunk", _chunk_document(db, document))
-            await _run_step(db, job, "embed", _embed_document(db, document))
+            await _run_step(db, document, job, "parse", DocumentStatus.parsing, _parse_document(db, document))
+            await _run_step(db, document, job, "chunk", DocumentStatus.chunking, _chunk_document(db, document))
+            await _run_step(db, document, job, "embed", DocumentStatus.embedding, _embed_document(db, document))
             document.status = DocumentStatus.ready
             if job:
                 job.status = ProcessingJobStatus.succeeded
@@ -73,20 +74,32 @@ async def _mark_running(db: AsyncSession, document: Document, job: ProcessingJob
     if job:
         job.status = ProcessingJobStatus.running
         job.error_message = None
+        job.metadata_ = _with_stage(job.metadata_, "upload", "succeeded")
     await db.commit()
 
 
-async def _run_step(db: AsyncSession, job: ProcessingJob | None, step_name: str, awaitable: object) -> None:
+async def _run_step(
+    db: AsyncSession,
+    document: Document,
+    job: ProcessingJob | None,
+    step_name: str,
+    document_status: DocumentStatus,
+    awaitable: object,
+) -> None:
     if job:
-        job.metadata_ = {**(job.metadata_ or {}), "current_step": step_name}
-        await db.commit()
+        job.metadata_ = _with_stage({**(job.metadata_ or {}), "current_step": step_name}, step_name, "running")
+    document.status = document_status
+    await db.commit()
     try:
         await awaitable
+        if job:
+            job.metadata_ = _with_stage({**(job.metadata_ or {}), "current_step": step_name}, step_name, "succeeded")
+        await db.commit()
     except Exception as exc:
         if job:
             job.status = ProcessingJobStatus.failed
             job.error_message = f"{step_name} failed: {exc}"
-            job.metadata_ = {**(job.metadata_ or {}), "failed_step": step_name}
+            job.metadata_ = _with_stage({**(job.metadata_ or {}), "failed_step": step_name}, step_name, "failed", str(exc))
             await db.commit()
         raise
 
@@ -195,4 +208,21 @@ async def _fail_job(db: AsyncSession, job: ProcessingJob | None, error_message: 
     if job:
         job.status = ProcessingJobStatus.failed
         job.error_message = error_message
+        job.metadata_ = {**(job.metadata_ or {}), "failed_step": "load_document"}
         await db.commit()
+
+
+def _with_stage(metadata: dict, stage_name: str, status: str, error: str | None = None) -> dict:
+    now = datetime.now(UTC).isoformat()
+    stages = dict(metadata.get("stages") or {})
+    current = dict(stages.get(stage_name) or {})
+    if status == "running":
+        current.setdefault("started_at", now)
+    if status in {"succeeded", "failed"}:
+        current.setdefault("started_at", now)
+        current["completed_at"] = now
+    current["status"] = status
+    if error:
+        current["error"] = error
+    stages[stage_name] = current
+    return {**metadata, "stages": stages}

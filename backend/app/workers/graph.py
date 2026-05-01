@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 from collections.abc import Awaitable
+from datetime import UTC, datetime
 
 import dramatiq
 from sqlalchemy import select
@@ -37,7 +38,7 @@ async def _build_graph(document_id: uuid.UUID, job_id: uuid.UUID | None) -> None
             if job:
                 job.status = ProcessingJobStatus.running
                 job.error_message = None
-                job.metadata_ = {**(job.metadata_ or {}), "current_step": "extract"}
+                job.metadata_ = _with_stage({**(job.metadata_ or {}), "current_step": "extract"}, "extract", "running")
             await db.commit()
 
             llm_provider = get_llm_provider()
@@ -71,7 +72,8 @@ async def _build_graph(document_id: uuid.UUID, job_id: uuid.UUID | None) -> None
             if job:
                 job.status = ProcessingJobStatus.succeeded
                 job.error_message = None
-                job.metadata_ = {**(job.metadata_ or {}), "current_step": "complete"}
+                metadata = _with_stage({**(job.metadata_ or {}), "current_step": "complete"}, "extract", "succeeded")
+                job.metadata_ = _with_stage(metadata, "graph_build", "succeeded")
             await db.commit()
         except Exception as exc:
             document.status = DocumentStatus.failed
@@ -95,8 +97,9 @@ async def _get_job(db, document_id: uuid.UUID, job_id: uuid.UUID | None) -> Proc
 
 
 async def _run_step(db, job: ProcessingJob | None, step_name: str, awaitable: Awaitable[object]) -> object:
+    stage_name = "extract" if step_name.startswith("extract_") else "graph_build"
     if job:
-        job.metadata_ = {**(job.metadata_ or {}), "current_step": step_name}
+        job.metadata_ = _with_stage({**(job.metadata_ or {}), "current_step": step_name}, stage_name, "running")
         await db.commit()
     try:
         return await awaitable
@@ -104,7 +107,7 @@ async def _run_step(db, job: ProcessingJob | None, step_name: str, awaitable: Aw
         if job:
             job.status = ProcessingJobStatus.failed
             job.error_message = f"{step_name} failed: {exc}"
-            job.metadata_ = {**(job.metadata_ or {}), "failed_step": step_name}
+            job.metadata_ = _with_stage({**(job.metadata_ or {}), "failed_step": step_name}, stage_name, "failed", str(exc))
             await db.commit()
         raise
 
@@ -113,4 +116,21 @@ async def _fail_job(db, job: ProcessingJob | None, error_message: str) -> None:
     if job:
         job.status = ProcessingJobStatus.failed
         job.error_message = error_message
+        job.metadata_ = _with_stage({**(job.metadata_ or {})}, "load_document", "failed", error_message)
         await db.commit()
+
+
+def _with_stage(metadata: dict, stage_name: str, status: str, error: str | None = None) -> dict:
+    now = datetime.now(UTC).isoformat()
+    stages = dict(metadata.get("stages") or {})
+    current = dict(stages.get(stage_name) or {})
+    if status == "running":
+        current.setdefault("started_at", now)
+    if status in {"succeeded", "failed"}:
+        current.setdefault("started_at", now)
+        current["completed_at"] = now
+    current["status"] = status
+    if error:
+        current["error"] = error
+    stages[stage_name] = current
+    return {**metadata, "stages": stages}

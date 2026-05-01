@@ -43,6 +43,42 @@ export function useDocumentGraphSummary(documentId?: UUID) {
   });
 }
 
+export function useProcessingTimeline(documentId?: UUID) {
+  return useQuery({
+    queryKey: ["processing-timeline", documentId],
+    queryFn: () => api.getProcessingTimeline(documentId!),
+    enabled: Boolean(documentId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.document_status;
+      return status === "pending" || status === "processing" || status === "parsing" || status === "chunking" || status === "embedding" || status === "extracting" ? 2000 : false;
+    }
+  });
+}
+
+export function useReprocessDocument(documentId?: UUID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.triggerProcessing(documentId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["document-status", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["processing-timeline", documentId] });
+    }
+  });
+}
+
+export function useRetryProcessingJob(documentId?: UUID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: UUID) => api.retryProcessingJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["document-status", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["processing-timeline", documentId] });
+    }
+  });
+}
+
 export function useUploadDocument(projectId: UUID) {
   const queryClient = useQueryClient();
   return useMutation({

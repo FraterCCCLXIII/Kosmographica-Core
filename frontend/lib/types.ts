@@ -184,6 +184,22 @@ export interface DocumentGraphSummary {
   top_claims: Claim[];
 }
 
+export interface ProcessingStage {
+  name: string;
+  job_id: UUID;
+  status: JobStatus | string;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+}
+
+export interface ProcessingTimeline {
+  document_id: UUID;
+  document_status: DocumentStatus;
+  jobs: ProcessingJob[];
+  stages: ProcessingStage[];
+}
+
 export interface ProcessingJob {
   id?: UUID;
   job_id?: UUID;

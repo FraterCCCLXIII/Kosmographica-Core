@@ -14,6 +14,7 @@ import type {
   LinkSuggestion,
   ListResponse,
   ProcessingJob,
+  ProcessingTimeline,
   Project,
   RAGResponse,
   ResearchNote,
@@ -137,6 +138,14 @@ export const api = {
   },
   async triggerProcessing(documentId: UUID): Promise<{ data: JsonObject }> {
     return request(`/processing/documents/${documentId}`, { method: "POST" });
+  },
+  async getProcessingTimeline(documentId: UUID): Promise<ProcessingTimeline> {
+    const response = await request<{ data: ProcessingTimeline }>(`/processing/documents/${documentId}/timeline`);
+    return response.data;
+  },
+  async retryProcessingJob(jobId: UUID): Promise<{ retry_job: ProcessingJob }> {
+    const response = await request<{ data: { retry_job: ProcessingJob } }>(`/processing/jobs/${jobId}/retry`, { method: "POST" });
+    return response.data;
   },
   async listEntities(projectId: UUID): Promise<Entity[]> {
     return listItems(await request<ListResponse<Entity>>(`/projects/${projectId}/entities`));

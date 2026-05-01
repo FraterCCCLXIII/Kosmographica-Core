@@ -6,8 +6,17 @@ import { useParams } from "next/navigation";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useDocument, useDocumentChunks, useDocumentGraphSummary, useDocumentStatus } from "@/lib/hooks/useDocuments";
+import {
+  useDocument,
+  useDocumentChunks,
+  useDocumentGraphSummary,
+  useDocumentStatus,
+  useProcessingTimeline,
+  useReprocessDocument,
+  useRetryProcessingJob
+} from "@/lib/hooks/useDocuments";
 
 export default function DocumentDetailPage() {
   const { workspaceId, projectId, documentId } = useParams<{ workspaceId: string; projectId: string; documentId: string }>();
@@ -15,10 +24,14 @@ export default function DocumentDetailPage() {
   const status = useDocumentStatus(documentId);
   const chunks = useDocumentChunks(documentId);
   const summary = useDocumentGraphSummary(documentId);
+  const timeline = useProcessingTimeline(documentId);
+  const reprocess = useReprocessDocument(documentId);
+  const retryJob = useRetryProcessingJob(documentId);
+  const failedJob = timeline.data?.jobs.slice().reverse().find((job) => job.status === "failed");
 
   return (
     <div className="space-y-6">
-      <ErrorBanner error={document.error || status.error || chunks.error || summary.error} />
+      <ErrorBanner error={document.error || status.error || chunks.error || summary.error || timeline.error || reprocess.error || retryJob.error} />
       {document.data ? (
         <>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -28,6 +41,16 @@ export default function DocumentDetailPage() {
             </div>
             <div className="flex gap-2">
               <StatusBadge status={status.data?.document_status ?? document.data.status} />
+              <Button variant="outline" disabled={reprocess.isPending} onClick={() => reprocess.mutate()}>
+                {reprocess.isPending ? "Reprocessing..." : "Reprocess"}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!failedJob || retryJob.isPending}
+                onClick={() => failedJob && retryJob.mutate(failedJob.id ?? failedJob.job_id!)}
+              >
+                {retryJob.isPending ? "Retrying..." : "Retry failed"}
+              </Button>
               <Link
                 className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
                 href={`/workspaces/${workspaceId}/projects/${projectId}/graph?query=${encodeURIComponent(document.data.title)}&documentId=${documentId}`}
@@ -61,6 +84,22 @@ export default function DocumentDetailPage() {
                   {status.data?.job ? (
                     <pre className="overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(status.data.job, null, 2)}</pre>
                   ) : <p className="text-muted-foreground">No processing job found.</p>}
+                  <div className="space-y-2">
+                    <p className="font-medium">Stage timeline</p>
+                    {timeline.data?.stages.length ? timeline.data.stages.map((stage) => (
+                      <div key={`${stage.job_id}-${stage.name}`} className="rounded-md border p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span>{stage.name.replaceAll("_", " ")}</span>
+                          <StatusBadge status={stage.status} />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {stage.started_at ? `Started ${new Date(stage.started_at).toLocaleString()}` : "Not started"}
+                          {stage.completed_at ? ` · Completed ${new Date(stage.completed_at).toLocaleString()}` : ""}
+                        </p>
+                        {stage.error ? <p className="text-xs text-destructive">{stage.error}</p> : null}
+                      </div>
+                    )) : <p className="text-muted-foreground">No stage timeline recorded yet.</p>}
+                  </div>
                 </CardContent>
               </Card>
 
