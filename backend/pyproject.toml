@@ -24,6 +24,10 @@ dependencies = [
   "tiktoken>=0.9,<1.0",
 ]
 
+[project.scripts]
+kosmo = "app.tools.cli:main"
+kosmo-mcp = "app.tools.mcp_server:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3,<9.0",
