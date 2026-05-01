@@ -171,30 +171,20 @@ class CrossProjectService:
             self.db.add(canonical)
             await self.db.flush()
 
-        link_result = await self.db.execute(
+        await self._link_entity_to_canonical(entity, canonical.id, workspace_id, "promote_to_canonical")
+
+        peer_result = await self.db.execute(
             select(CrossProjectLink).where(
                 CrossProjectLink.workspace_id == workspace_id,
-                CrossProjectLink.source_ref_id == entity.id,
-                CrossProjectLink.target_ref_id == canonical.id,
-                CrossProjectLink.link_type == "is_canonical_instance_of",
+                CrossProjectLink.link_type == "same_entity_candidate",
+                ((CrossProjectLink.source_ref_id == entity.id) | (CrossProjectLink.target_ref_id == entity.id)),
             )
         )
-        if not link_result.scalar_one_or_none():
-            self.db.add(
-                CrossProjectLink(
-                    workspace_id=workspace_id,
-                    source_project_id=entity.project_id,
-                    target_project_id=entity.project_id,
-                    source_ref_type="entity",
-                    source_ref_id=entity.id,
-                    target_ref_type="global_canonical_entity",
-                    target_ref_id=canonical.id,
-                    link_type="is_canonical_instance_of",
-                    confidence=1.0,
-                    rationale="Explicit user promotion to global canonical entity.",
-                    metadata_={"source": "promote_to_canonical"},
-                )
-            )
+        for link in peer_result.scalars().all():
+            peer_entity_id = link.target_ref_id if link.source_ref_id == entity.id else link.source_ref_id
+            peer_entity = await self.db.get(Entity, peer_entity_id)
+            if peer_entity:
+                await self._link_entity_to_canonical(peer_entity, canonical.id, workspace_id, "confirmed_cross_project_link")
         await self.db.commit()
         await self.db.refresh(canonical)
         return canonical
@@ -206,6 +196,47 @@ class CrossProjectService:
             .order_by(CrossProjectLink.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def global_canonical_entities(self, workspace_id: uuid.UUID) -> list[GlobalCanonicalEntity]:
+        result = await self.db.execute(
+            select(GlobalCanonicalEntity)
+            .where(GlobalCanonicalEntity.workspace_id == workspace_id)
+            .order_by(GlobalCanonicalEntity.canonical_name)
+        )
+        return list(result.scalars().all())
+
+    async def _link_entity_to_canonical(
+        self,
+        entity: Entity,
+        canonical_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        source: str,
+    ) -> None:
+        link_result = await self.db.execute(
+            select(CrossProjectLink).where(
+                CrossProjectLink.workspace_id == workspace_id,
+                CrossProjectLink.source_ref_id == entity.id,
+                CrossProjectLink.target_ref_id == canonical_id,
+                CrossProjectLink.link_type == "is_canonical_instance_of",
+            )
+        )
+        if link_result.scalar_one_or_none():
+            return
+        self.db.add(
+            CrossProjectLink(
+                workspace_id=workspace_id,
+                source_project_id=entity.project_id,
+                target_project_id=entity.project_id,
+                source_ref_type="entity",
+                source_ref_id=entity.id,
+                target_ref_type="global_canonical_entity",
+                target_ref_id=canonical_id,
+                link_type="is_canonical_instance_of",
+                confidence=1.0,
+                rationale="Explicit user promotion to global canonical entity.",
+                metadata_={"source": source},
+            )
+        )
 
     async def _workspace_projects(self, workspace_id: uuid.UUID) -> list[Project]:
         result = await self.db.execute(select(Project).where(Project.workspace_id == workspace_id))

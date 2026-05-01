@@ -25,6 +25,7 @@ class RAGQueryRequest(BaseModel):
     project_id: uuid.UUID
     mode: str = "single"
     k: int = Field(default=10, ge=1, le=50)
+    filters: dict[str, Any] = Field(default_factory=dict)
 
 
 class ComparativeQueryRequest(BaseModel):
@@ -48,7 +49,7 @@ async def rag_query(
     db: AsyncSession = Depends(get_db),
 ) -> RAGResponse:
     service = RAGService(db, get_embedding_provider(), get_llm_provider())
-    return await service.query(request.question, request.project_id, request.mode, request.k)
+    return await service.query(request.question, request.project_id, request.mode, request.k, request.filters)
 
 
 @router.post("/comparative")

@@ -12,9 +12,10 @@ interface NodeSidePanelProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   onExpandNeighborhood: (nodeId: string) => void;
+  isExpanding?: boolean;
 }
 
-export function NodeSidePanel({ node, nodes, edges, onExpandNeighborhood }: NodeSidePanelProps) {
+export function NodeSidePanel({ node, nodes, edges, onExpandNeighborhood, isExpanding = false }: NodeSidePanelProps) {
   if (!node) {
     return (
       <Card className="h-full">
@@ -97,9 +98,9 @@ export function NodeSidePanel({ node, nodes, edges, onExpandNeighborhood }: Node
           })}
         </section>
 
-        <Button className="w-full" onClick={() => onExpandNeighborhood(node.id)}>
+        <Button className="w-full" disabled={isExpanding} onClick={() => onExpandNeighborhood(node.id)}>
           <Network className="mr-2 h-4 w-4" />
-          Expand neighborhood
+          {isExpanding ? "Expanding..." : "Expand neighborhood"}
         </Button>
       </CardContent>
     </Card>

@@ -54,6 +54,24 @@ async def list_confirmed_links(workspace_id: uuid.UUID, db: AsyncSession = Depen
     return [_serialize_link(link) for link in links]
 
 
+@router.get("/canonical/entities")
+async def list_global_canonical_entities(workspace_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[dict[str, Any]]:
+    entities = await CrossProjectService(db, get_embedding_provider()).global_canonical_entities(workspace_id)
+    return [
+        {
+            "id": str(entity.id),
+            "workspace_id": str(entity.workspace_id),
+            "canonical_name": entity.canonical_name,
+            "entity_type": entity.entity_type,
+            "aliases": entity.aliases,
+            "description": entity.description,
+            "metadata": entity.metadata_,
+            "created_at": entity.created_at.isoformat() if entity.created_at else None,
+        }
+        for entity in entities
+    ]
+
+
 @router.post("/links/confirm")
 async def confirm_link(
     workspace_id: uuid.UUID,

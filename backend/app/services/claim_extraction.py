@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models.document import Chunk
 from app.models.knowledge import Claim
 from app.providers.base import LLMProvider
@@ -27,6 +28,8 @@ class ClaimExtractor:
         self.low_confidence_threshold = low_confidence_threshold
 
     async def extract(self, chunk: Chunk) -> list[ExtractedClaim]:
+        if get_settings().extraction_provider == "local":
+            return self._extract_local(chunk.text)
         response = await self.llm_provider.complete(self._build_prompt(chunk.text), system=self._system_prompt())
         payload = _parse_json_object(response)
         claims = payload.get("claims", [])
@@ -81,6 +84,27 @@ Chunk text:
             evidence_text=evidence_text,
             low_confidence=confidence < self.low_confidence_threshold,
         )
+
+    def _extract_local(self, chunk_text: str) -> list[ExtractedClaim]:
+        sentence = next((part.strip() for part in chunk_text.replace("\n", " ").split(".") if part.strip()), "")
+        if not sentence:
+            return []
+        words = sentence.split()
+        subject = " ".join(words[: min(3, len(words))]).strip(" ,;:")
+        object_ = " ".join(words[-min(5, len(words)) :]).strip(" ,;:")
+        if not subject or not object_ or subject == object_:
+            return []
+        confidence = 0.5
+        return [
+            ExtractedClaim(
+                subject=subject,
+                predicate="states",
+                object=object_,
+                confidence=confidence,
+                evidence_text=sentence,
+                low_confidence=confidence < self.low_confidence_threshold,
+            )
+        ]
 
     async def _get_or_create_claim(self, chunk: Chunk, extracted: ExtractedClaim) -> Claim:
         result = await self.db.execute(

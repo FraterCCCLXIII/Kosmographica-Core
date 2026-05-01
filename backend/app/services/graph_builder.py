@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Chunk, Document
 from app.models.graph import GraphEdge, GraphNode
-from app.models.knowledge import Entity
+from app.models.knowledge import Claim, Concept, Entity
 
 
 class GraphBuilder:
@@ -91,6 +91,77 @@ class GraphBuilder:
                     evidence_chunk_id=chunk.id,
                     metadata={"entity_type": entity.entity_type},
                 )
+        await self.db.commit()
+        return nodes
+
+    async def build_concept_nodes(self, project_id: uuid.UUID) -> list[GraphNode]:
+        concept_result = await self.db.execute(select(Concept).where(Concept.project_id == project_id))
+        concepts = list(concept_result.scalars().all())
+        nodes: list[GraphNode] = []
+        for concept in concepts:
+            concept_node = await self._get_or_create_node(
+                project_id,
+                "concept",
+                concept.id,
+                concept.name,
+                {"concept_type": concept.metadata_.get("concept_type")},
+            )
+            nodes.append(concept_node)
+            for source_chunk_id in concept.metadata_.get("source_chunk_ids", []):
+                chunk_id = uuid.UUID(source_chunk_id)
+                chunk = await self.db.get(Chunk, chunk_id)
+                if not chunk or chunk.project_id != project_id:
+                    continue
+                chunk_node = await self._get_or_create_node(project_id, "chunk", chunk.id, chunk.citation, {})
+                await self._get_or_create_edge(
+                    project_id,
+                    chunk_node.id,
+                    concept_node.id,
+                    "mentions",
+                    weight=1.0,
+                    confidence=float(concept.metadata_.get("confidence", 1.0)),
+                    evidence_chunk_id=chunk.id,
+                    metadata={"concept_type": concept.metadata_.get("concept_type")},
+                )
+        await self.db.commit()
+        return nodes
+
+    async def build_claim_nodes(self, document_id: uuid.UUID) -> list[GraphNode]:
+        document = await self.db.get(Document, document_id)
+        if not document:
+            raise ValueError(f"Document not found: {document_id}")
+        claim_result = await self.db.execute(select(Claim).where(Claim.project_id == document.project_id, Claim.chunk_id.in_(select(Chunk.id).where(Chunk.document_id == document_id))))
+        claims = list(claim_result.scalars().all())
+        nodes: list[GraphNode] = []
+        for claim in claims:
+            label = f"{claim.subject} {claim.predicate} {claim.object}"
+            claim_node = await self._get_or_create_node(
+                claim.project_id,
+                "claim",
+                claim.id,
+                label,
+                {
+                    "subject": claim.subject,
+                    "predicate": claim.predicate,
+                    "object": claim.object,
+                    "low_confidence": claim.metadata_.get("low_confidence", False),
+                },
+            )
+            nodes.append(claim_node)
+            chunk = await self.db.get(Chunk, claim.chunk_id)
+            if not chunk:
+                continue
+            chunk_node = await self._get_or_create_node(claim.project_id, "chunk", chunk.id, chunk.citation, {})
+            await self._get_or_create_edge(
+                claim.project_id,
+                chunk_node.id,
+                claim_node.id,
+                "supports_claim",
+                weight=1.0,
+                confidence=claim.confidence,
+                evidence_chunk_id=chunk.id,
+                metadata={"evidence_text": claim.evidence_text, "low_confidence": claim.metadata_.get("low_confidence", False)},
+            )
         await self.db.commit()
         return nodes
 

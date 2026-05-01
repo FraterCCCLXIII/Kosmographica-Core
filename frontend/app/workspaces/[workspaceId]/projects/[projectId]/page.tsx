@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { api } from "@/lib/api";
 import { useDocuments } from "@/lib/hooks/useDocuments";
 import { useGraphEdges, useGraphNodes } from "@/lib/hooks/useGraph";
 
@@ -14,11 +16,27 @@ export default function ProjectDashboardPage() {
   const documents = useDocuments(projectId);
   const nodes = useGraphNodes(projectId);
   const edges = useGraphEdges(projectId);
+  const [exporting, setExporting] = useState<string | null>(null);
   const documentCount = documents.data?.length ?? 0;
   const entityCount = nodes.data?.filter((node) => node.node_type === "entity").length ?? 0;
   const chunkCount = nodes.data?.filter((node) => node.node_type === "chunk").length ?? 0;
   const edgeCount = edges.data?.length ?? 0;
   const base = `/workspaces/${workspaceId}/projects/${projectId}`;
+
+  async function downloadExport(format: "json" | "graphml" | "csv" | "markdown") {
+    setExporting(format);
+    try {
+      const blob = await api.exportProject(projectId, format);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `kosmographica-${projectId}.${format === "csv" ? "zip" : format === "markdown" ? "md" : format}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -52,7 +70,22 @@ export default function ProjectDashboardPage() {
         <Link href={`${base}/documents`}><Button>Documents</Button></Link>
         <Link href={`${base}/graph`}><Button variant="secondary">Graph</Button></Link>
         <Link href={`${base}/chat`}><Button variant="secondary">Chat</Button></Link>
+        <Link href={`${base}/entities`}><Button variant="secondary">Entities</Button></Link>
+        <Link href={`${base}/clusters`}><Button variant="secondary">Clusters</Button></Link>
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Exports</CardTitle>
+          <CardDescription>Download project-local data with graph nodes, edges, chunks, claims, and citations.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          {(["json", "graphml", "csv", "markdown"] as const).map((format) => (
+            <Button key={format} variant="outline" disabled={Boolean(exporting)} onClick={() => downloadExport(format)}>
+              {exporting === format ? "Preparing..." : `Export ${format}`}
+            </Button>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 }

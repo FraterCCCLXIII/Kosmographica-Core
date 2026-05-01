@@ -11,7 +11,8 @@ const navItems = [
   ["Graph", "graph"],
   ["Chat", "chat"],
   ["Entities", "entities"],
-  ["Clusters", "clusters"]
+  ["Clusters", "clusters"],
+  ["Cross-project links", "__cross_project"]
 ] as const;
 
 export function Sidebar() {
@@ -26,7 +27,7 @@ export function Sidebar() {
         {navItems.map(([label, path]) => (
           <Link
             key={label}
-            href={path ? `${base}/${path}` : base}
+            href={path === "__cross_project" ? `/workspaces/${params.workspaceId}/cross-project` : path ? `${base}/${path}` : base}
             className={cn("block rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-background hover:text-foreground")}
           >
             {label}

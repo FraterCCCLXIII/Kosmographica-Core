@@ -1,7 +1,7 @@
 from app.config import get_settings
 from app.providers.anthropic_provider import AnthropicLLMProvider
 from app.providers.base import EmbeddingProvider, LLMProvider
-from app.providers.local_provider import LocalEmbeddingProvider
+from app.providers.local_provider import LocalEmbeddingProvider, LocalLLMProvider
 from app.providers.openai_provider import OpenAIEmbeddingProvider, OpenAILLMProvider
 
 
@@ -16,6 +16,8 @@ def get_embedding_provider() -> EmbeddingProvider:
 
 def get_llm_provider() -> LLMProvider:
     settings = get_settings()
+    if settings.llm_provider == "local":
+        return LocalLLMProvider()
     if settings.llm_provider == "anthropic":
         return AnthropicLLMProvider(api_key=settings.anthropic_api_key)
     if settings.llm_provider == "openai":

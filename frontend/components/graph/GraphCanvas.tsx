@@ -32,11 +32,13 @@ interface GraphCanvasProps {
   filters: GraphFilters;
   searchQuery: string;
   selectedNodeId?: UUID;
+  selectedNodeIds?: Set<UUID>;
   onNodeClick: (nodeId: UUID) => void;
+  onLayoutRunningChange?: (isRunning: boolean) => void;
 }
 
 export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
-  ({ nodes, edges, filters, searchQuery, selectedNodeId, onNodeClick }, ref) => {
+  ({ nodes, edges, filters, searchQuery, selectedNodeId, selectedNodeIds = new Set(), onNodeClick, onLayoutRunningChange }, ref) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const sigmaRef = useRef<Sigma | null>(null);
     const graphRef = useRef<Graph | null>(null);
@@ -65,6 +67,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
           window.clearInterval(layoutTimerRef.current);
           layoutTimerRef.current = null;
           setIsLayoutRunning(false);
+          onLayoutRunningChange?.(false);
           return;
         }
         const graph = graphRef.current;
@@ -74,9 +77,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
           sigmaRef.current?.refresh();
         }, 120);
         setIsLayoutRunning(true);
+        onLayoutRunningChange?.(true);
       },
       isLayoutRunning
-    }), [isLayoutRunning]);
+    }), [isLayoutRunning, onLayoutRunningChange]);
 
     useEffect(() => {
       if (!containerRef.current) return;
@@ -96,11 +100,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         if (layoutTimerRef.current) window.clearInterval(layoutTimerRef.current);
         layoutTimerRef.current = null;
         setIsLayoutRunning(false);
+        onLayoutRunningChange?.(false);
         sigma.kill();
         sigmaRef.current = null;
         graphRef.current = null;
       };
-    }, [dataSignature, edges, nodes, onNodeClick]);
+    }, [dataSignature, edges, nodes, onLayoutRunningChange, onNodeClick]);
 
     useEffect(() => {
       const sigma = sigmaRef.current;
@@ -112,12 +117,14 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         const label = String(data.label ?? "");
         const hidden = !matchesNodeFilters(nodeType, metadata, filters);
         const isMatch = normalizedSearch.length > 0 && label.toLowerCase().includes(normalizedSearch);
+        const isSelected = node === selectedNodeId;
+        const isInSelection = selectedNodeIds.has(String(node));
         return {
           ...data,
           hidden,
-          highlighted: isMatch || node === selectedNodeId,
-          color: node === selectedNodeId ? "#dc2626" : isMatch ? "#facc15" : data.color,
-          zIndex: isMatch || node === selectedNodeId ? 10 : data.zIndex
+          highlighted: isMatch || isSelected || isInSelection,
+          color: isSelected ? "#dc2626" : isInSelection ? "#fb923c" : isMatch ? "#facc15" : data.color,
+          zIndex: isMatch || isSelected || isInSelection ? 10 : data.zIndex
         };
       });
       sigma.setSetting("edgeReducer", (_edge, data) => {
@@ -128,7 +135,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         };
       });
       sigma.refresh();
-    }, [filters, searchQuery, selectedNodeId]);
+    }, [filters, searchQuery, selectedNodeId, selectedNodeIds]);
 
     return <div ref={containerRef} className="h-[720px] min-h-[480px] rounded-lg border bg-card" />;
   }

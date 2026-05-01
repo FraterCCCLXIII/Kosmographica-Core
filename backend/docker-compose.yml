@@ -53,5 +53,25 @@ services:
       timeout: 5s
       retries: 5
 
+  worker:
+    build:
+      context: .
+    command: python -m dramatiq app.workers.ingestion app.workers.graph
+    environment:
+      DATABASE_URL: postgresql+asyncpg://kosmographica:kosmographica@postgres:5432/kosmographica
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EMBEDDING_PROVIDER: openai
+      LLM_PROVIDER: anthropic
+      DRAMATIQ_DEV_MODE: "false"
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   postgres_data:

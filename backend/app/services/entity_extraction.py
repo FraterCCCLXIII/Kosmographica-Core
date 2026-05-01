@@ -1,13 +1,13 @@
 import json
-import uuid
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models.document import Chunk
-from app.models.graph import GraphEdge, GraphNode
 from app.models.knowledge import Entity
 from app.models.workspace import Project
 from app.providers.base import LLMProvider
@@ -28,6 +28,8 @@ class EntityExtractor:
         self.llm_provider = llm_provider
 
     async def extract(self, chunk: Chunk) -> list[ExtractedEntity]:
+        if get_settings().extraction_provider == "local":
+            return self._extract_local(chunk.text)
         project = await self.db.get(Project, chunk.project_id)
         valid_entity_types = self._valid_entity_types(project)
         prompt = self._build_prompt(chunk.text, valid_entity_types)
@@ -39,27 +41,10 @@ class EntityExtractor:
     async def extract_and_store(self, chunk: Chunk) -> list[Entity]:
         extracted_entities = await self.extract(chunk)
         stored_entities: list[Entity] = []
-        chunk_node = await self._get_or_create_node("chunk", chunk.id, chunk.project_id, chunk.citation, {})
 
         for extracted in extracted_entities:
             entity = await self._get_or_create_entity(chunk, extracted)
             stored_entities.append(entity)
-            entity_node = await self._get_or_create_node(
-                "entity",
-                entity.id,
-                chunk.project_id,
-                entity.canonical_name,
-                {"entity_type": entity.entity_type},
-            )
-            await self._get_or_create_edge(
-                chunk.project_id,
-                chunk_node.id,
-                entity_node.id,
-                "chunk_mentions_entity",
-                extracted.confidence,
-                chunk.id,
-                {"start_char": extracted.start_char, "end_char": extracted.end_char},
-            )
 
         await self.db.commit()
         return stored_entities
@@ -107,6 +92,40 @@ Chunk text:
         confidence = min(1.0, max(0.0, float(item.get("confidence", 0.0))))
         return ExtractedEntity(text=text, entity_type=entity_type, start_char=start_char, end_char=end_char, confidence=confidence)
 
+    def _extract_local(self, chunk_text: str) -> list[ExtractedEntity]:
+        known_entities = {
+            "demiurge": "figure",
+            "sophia": "figure",
+            "jesus": "person",
+            "christ": "figure",
+            "buddha": "person",
+            "mary": "person",
+            "gnostic": "tradition",
+        }
+        candidates: dict[str, str] = {}
+        for match in re.finditer(r"\b[A-Z][A-Za-z]{2,}(?:\s+[A-Z][A-Za-z]{2,})*\b", chunk_text):
+            candidates.setdefault(match.group(0), "entity")
+        lower_text = chunk_text.lower()
+        for name, entity_type in known_entities.items():
+            if re.search(rf"\b{re.escape(name)}\b", lower_text):
+                candidates.setdefault(name, entity_type)
+
+        entities: list[ExtractedEntity] = []
+        for text, entity_type in candidates.items():
+            match = re.search(rf"\b{re.escape(text)}\b", chunk_text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            entities.append(
+                ExtractedEntity(
+                    text=chunk_text[match.start() : match.end()],
+                    entity_type=entity_type,
+                    start_char=match.start(),
+                    end_char=match.end(),
+                    confidence=0.7,
+                )
+            )
+        return entities
+
     async def _get_or_create_entity(self, chunk: Chunk, extracted: ExtractedEntity) -> Entity:
         result = await self.db.execute(
             select(Entity).where(
@@ -119,7 +138,12 @@ Chunk text:
         if entity:
             source_chunks = set(entity.metadata_.get("source_chunk_ids", []))
             source_chunks.add(str(chunk.id))
-            entity.metadata_ = {**entity.metadata_, "source_chunk_ids": sorted(source_chunks)}
+            mentions = list(entity.metadata_.get("mentions", []))
+            mention = {"chunk_id": str(chunk.id), "start_char": extracted.start_char, "end_char": extracted.end_char}
+            if mention not in mentions:
+                mentions.append(mention)
+            confidence = max(float(entity.metadata_.get("confidence", 0.0)), extracted.confidence)
+            entity.metadata_ = {**entity.metadata_, "source_chunk_ids": sorted(source_chunks), "mentions": mentions, "confidence": confidence}
             return entity
         entity = Entity(
             project_id=chunk.project_id,
@@ -135,54 +159,6 @@ Chunk text:
         self.db.add(entity)
         await self.db.flush()
         return entity
-
-    async def _get_or_create_node(self, node_type: str, ref_id: uuid.UUID, project_id: uuid.UUID, label: str, metadata: dict[str, Any]) -> GraphNode:
-        result = await self.db.execute(
-            select(GraphNode).where(GraphNode.project_id == project_id, GraphNode.node_type == node_type, GraphNode.ref_id == ref_id)
-        )
-        node = result.scalar_one_or_none()
-        if node:
-            return node
-        node = GraphNode(project_id=project_id, node_type=node_type, ref_id=ref_id, label=label, metadata_=metadata)
-        self.db.add(node)
-        await self.db.flush()
-        return node
-
-    async def _get_or_create_edge(
-        self,
-        project_id: uuid.UUID,
-        source_node_id: uuid.UUID,
-        target_node_id: uuid.UUID,
-        edge_type: str,
-        confidence: float,
-        evidence_chunk_id: uuid.UUID,
-        metadata: dict[str, Any],
-    ) -> GraphEdge:
-        result = await self.db.execute(
-            select(GraphEdge).where(
-                GraphEdge.project_id == project_id,
-                GraphEdge.source_node_id == source_node_id,
-                GraphEdge.target_node_id == target_node_id,
-                GraphEdge.edge_type == edge_type,
-                GraphEdge.evidence_chunk_id == evidence_chunk_id,
-            )
-        )
-        edge = result.scalar_one_or_none()
-        if edge:
-            return edge
-        edge = GraphEdge(
-            project_id=project_id,
-            source_node_id=source_node_id,
-            target_node_id=target_node_id,
-            edge_type=edge_type,
-            weight=1.0,
-            confidence=confidence,
-            evidence_chunk_id=evidence_chunk_id,
-            metadata_=metadata,
-        )
-        self.db.add(edge)
-        await self.db.flush()
-        return edge
 
 
 def _parse_json_object(response: str) -> dict[str, Any]:

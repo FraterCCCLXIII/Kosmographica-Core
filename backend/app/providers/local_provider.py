@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
+from collections.abc import AsyncIterator
 
-from app.providers.base import EmbeddingProvider
+from app.providers.base import EmbeddingProvider, LLMProvider
 
 
 class LocalEmbeddingProvider(EmbeddingProvider):
@@ -16,6 +18,20 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         return [_embed(text) for text in texts]
+
+
+class LocalLLMProvider(LLMProvider):
+    """Local RAG verifier that only echoes retrieved evidence with citations."""
+
+    model = "local-verbatim-rag"
+    is_local = True
+
+    async def complete(self, prompt: str, system: str | None = None) -> str:
+        chunks = _extract_prompt_chunks(prompt)
+        return "\n\n".join(f"{text} [{chunk_id}]" for chunk_id, text in chunks)
+
+    async def stream(self, prompt: str, system: str | None = None) -> AsyncIterator[str]:
+        yield await self.complete(prompt, system)
 
 
 def _embed(text: str) -> list[float]:
@@ -33,3 +49,16 @@ def _embed(text: str) -> list[float]:
     if norm == 0:
         return vector
     return [value / norm for value in vector]
+
+
+def _extract_prompt_chunks(prompt: str) -> list[tuple[str, str]]:
+    chunks: list[tuple[str, str]] = []
+    lines = prompt.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"\[([0-9a-fA-F-]{36})\].*", line)
+        if not match:
+            continue
+        text = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        if text:
+            chunks.append((match.group(1), text))
+    return chunks

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 import { useParams } from "next/navigation";
 import { FormEvent, useState } from "react";
@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { useProjects } from "@/lib/hooks/useProjects";
 import type { RAGResponse } from "@/lib/types";
 
 interface ChatMessage {
@@ -22,14 +23,21 @@ interface ChatMessage {
 }
 
 export default function ChatPage() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { workspaceId, projectId } = useParams<{ workspaceId: string; projectId: string }>();
   const [mode, setMode] = useState("single");
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set([projectId]));
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const projects = useProjects(workspaceId);
+  const canonicalEntities = useQuery({
+    queryKey: ["global-canonical-entities", workspaceId],
+    queryFn: () => api.listGlobalCanonicalEntities(workspaceId)
+  });
+  const globalEnabled = Boolean(canonicalEntities.data?.length);
   const query = useMutation({
     mutationFn: (input: { question: string; mode: string }) =>
       input.mode === "comparative"
-        ? api.comparativeQuery({ question: input.question, project_ids: [projectId], k: 8 })
+        ? api.comparativeQuery({ question: input.question, project_ids: Array.from(selectedProjectIds), k: 8 })
         : api.ragQuery({ question: input.question, mode: input.mode, project_id: projectId, k: 8 }),
     onSuccess: (response, variables) => {
       setMessages((current) => [
@@ -43,7 +51,16 @@ export default function ChatPage() {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (question.trim()) query.mutate({ question, mode });
+    if (question.trim() && (mode !== "comparative" || selectedProjectIds.size > 0)) query.mutate({ question, mode });
+  }
+
+  function toggleProject(projectIdValue: string) {
+    setSelectedProjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(projectIdValue) && next.size > 1) next.delete(projectIdValue);
+      else next.add(projectIdValue);
+      return next;
+    });
   }
 
   return (
@@ -103,7 +120,7 @@ export default function ChatPage() {
             <SelectContent>
               <SelectItem value="single">Single</SelectItem>
               <SelectItem value="comparative">Comparative</SelectItem>
-              <SelectItem value="global">Global</SelectItem>
+              <SelectItem value="global" disabled={!globalEnabled}>Global</SelectItem>
             </SelectContent>
           </Select>
           <Button type="submit" disabled={query.isPending} className="ml-auto">
@@ -111,6 +128,26 @@ export default function ChatPage() {
             {query.isPending ? "Asking..." : "Ask"}
           </Button>
         </div>
+        {mode === "comparative" ? (
+          <div className="rounded-md border p-3">
+            <p className="mb-2 text-sm font-medium">Compare projects</p>
+            <div className="grid gap-2 md:grid-cols-2">
+              {(projects.data ?? []).map((project) => (
+                <label key={project.id} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={selectedProjectIds.has(project.id)} onChange={() => toggleProject(project.id)} />
+                  <span>{project.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {mode === "global" ? (
+          <p className="text-sm text-muted-foreground">
+            Global mode uses promoted canonical entities. It is available because this workspace has {canonicalEntities.data?.length ?? 0} canonical entity record(s).
+          </p>
+        ) : !globalEnabled ? (
+          <p className="text-sm text-muted-foreground">Global mode unlocks after at least one entity is promoted to a workspace canonical entity.</p>
+        ) : null}
         <Textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask a cited question about this project..." />
       </form>
     </div>

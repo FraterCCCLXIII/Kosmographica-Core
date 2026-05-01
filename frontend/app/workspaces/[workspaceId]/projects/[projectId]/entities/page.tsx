@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import Link from "next/link";
 
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
@@ -8,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useGraphNodes } from "@/lib/hooks/useGraph";
 
 export default function EntitiesPage() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { workspaceId, projectId } = useParams<{ workspaceId: string; projectId: string }>();
   const nodes = useGraphNodes(projectId);
   const entities = nodes.data?.filter((node) => node.node_type === "entity") ?? [];
 
@@ -24,7 +25,16 @@ export default function EntitiesPage() {
           {entities.map((entity) => (
             <Card key={entity.id}>
               <CardHeader><CardTitle>{entity.label}</CardTitle></CardHeader>
-              <CardContent className="text-sm text-muted-foreground">{String(entity.metadata.entity_type ?? "entity")}</CardContent>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <p>{String(entity.metadata.entity_type ?? "entity")}</p>
+                <p>{Array.isArray(entity.metadata.source_chunk_ids) ? entity.metadata.source_chunk_ids.length : 0} source chunk(s)</p>
+                <Link
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
+                  href={`/workspaces/${workspaceId}/projects/${projectId}/graph?nodeId=${entity.id}`}
+                >
+                  View in graph
+                </Link>
+              </CardContent>
             </Card>
           ))}
         </div>

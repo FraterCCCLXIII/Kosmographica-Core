@@ -21,6 +21,10 @@ def build_graph(document_id: str, job_id: str | None = None) -> None:
     asyncio.run(_build_graph(uuid.UUID(document_id), uuid.UUID(job_id) if job_id else None))
 
 
+async def build_graph_now(document_id: uuid.UUID, job_id: uuid.UUID | None = None) -> None:
+    await _build_graph(document_id, job_id)
+
+
 async def _build_graph(document_id: uuid.UUID, job_id: uuid.UUID | None) -> None:
     async with AsyncSessionLocal() as db:
         document = await db.get(Document, document_id)
@@ -58,6 +62,8 @@ async def _build_graph(document_id: uuid.UUID, job_id: uuid.UUID | None) -> None
             await _run_step(db, job, "build_document_nodes", builder.build_document_nodes(document.id))
             await _run_step(db, job, "build_chunk_nodes", builder.build_chunk_nodes(document.id))
             await _run_step(db, job, "build_entity_nodes", builder.build_entity_nodes(document.project_id))
+            await _run_step(db, job, "build_concept_nodes", builder.build_concept_nodes(document.project_id))
+            await _run_step(db, job, "build_claim_nodes", builder.build_claim_nodes(document.id))
             await _run_step(db, job, "build_semantic_edges", builder.build_semantic_edges(document.project_id))
             await _run_step(db, job, "build_cooccurrence_edges", builder.build_cooccurrence_edges(document.project_id))
 

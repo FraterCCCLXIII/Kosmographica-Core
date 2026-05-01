@@ -1,12 +1,12 @@
-import uuid
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models.document import Chunk
-from app.models.graph import GraphEdge, GraphNode
 from app.models.knowledge import Concept
 from app.models.workspace import Project
 from app.providers.base import LLMProvider
@@ -28,6 +28,8 @@ class ConceptExtractor:
         self.llm_provider = llm_provider
 
     async def extract(self, chunk: Chunk) -> list[ExtractedConcept]:
+        if get_settings().extraction_provider == "local":
+            return self._extract_local(chunk.text)
         project = await self.db.get(Project, chunk.project_id)
         concept_types = self._concept_types(project)
         prompt = self._build_prompt(chunk.text, concept_types)
@@ -39,27 +41,10 @@ class ConceptExtractor:
     async def extract_and_store(self, chunk: Chunk) -> list[Concept]:
         extracted_concepts = await self.extract(chunk)
         stored_concepts: list[Concept] = []
-        chunk_node = await self._get_or_create_node("chunk", chunk.id, chunk.project_id, chunk.citation, {})
 
         for extracted in extracted_concepts:
             concept = await self._get_or_create_concept(chunk, extracted)
             stored_concepts.append(concept)
-            concept_node = await self._get_or_create_node(
-                "concept",
-                concept.id,
-                chunk.project_id,
-                concept.name,
-                {"concept_type": extracted.concept_type},
-            )
-            await self._get_or_create_edge(
-                chunk.project_id,
-                chunk_node.id,
-                concept_node.id,
-                "chunk_mentions_concept",
-                extracted.confidence,
-                chunk.id,
-                {"start_char": extracted.start_char, "end_char": extracted.end_char, "concept_type": extracted.concept_type},
-            )
 
         await self.db.commit()
         return stored_concepts
@@ -108,6 +93,35 @@ Chunk text:
         confidence = min(1.0, max(0.0, float(item.get("confidence", 0.0))))
         return ExtractedConcept(text=text, concept_type=concept_type, start_char=start_char, end_char=end_char, confidence=confidence)
 
+    @staticmethod
+    def _extract_local(chunk_text: str) -> list[ExtractedConcept]:
+        concept_terms = {
+            "cosmology": "doctrine",
+            "wisdom": "theme",
+            "emanation": "doctrine",
+            "restoration": "theme",
+            "salvation": "theme",
+            "ritual": "practice",
+            "myth": "motif",
+            "knowledge": "theme",
+        }
+        lower_text = chunk_text.lower()
+        concepts: list[ExtractedConcept] = []
+        for term, concept_type in concept_terms.items():
+            match = re.search(rf"\b{re.escape(term)}\b", lower_text)
+            if not match:
+                continue
+            concepts.append(
+                ExtractedConcept(
+                    text=chunk_text[match.start() : match.end()],
+                    concept_type=concept_type,
+                    start_char=match.start(),
+                    end_char=match.end(),
+                    confidence=0.7,
+                )
+            )
+        return concepts
+
     async def _get_or_create_concept(self, chunk: Chunk, extracted: ExtractedConcept) -> Concept:
         result = await self.db.execute(
             select(Concept).where(Concept.project_id == chunk.project_id, Concept.name == extracted.text)
@@ -116,7 +130,12 @@ Chunk text:
         if concept:
             source_chunks = set(concept.metadata_.get("source_chunk_ids", []))
             source_chunks.add(str(chunk.id))
-            concept.metadata_ = {**concept.metadata_, "source_chunk_ids": sorted(source_chunks)}
+            mentions = list(concept.metadata_.get("mentions", []))
+            mention = {"chunk_id": str(chunk.id), "start_char": extracted.start_char, "end_char": extracted.end_char}
+            if mention not in mentions:
+                mentions.append(mention)
+            confidence = max(float(concept.metadata_.get("confidence", 0.0)), extracted.confidence)
+            concept.metadata_ = {**concept.metadata_, "source_chunk_ids": sorted(source_chunks), "mentions": mentions, "confidence": confidence}
             return concept
         concept = Concept(
             project_id=chunk.project_id,
@@ -132,51 +151,3 @@ Chunk text:
         self.db.add(concept)
         await self.db.flush()
         return concept
-
-    async def _get_or_create_node(self, node_type: str, ref_id: uuid.UUID, project_id: uuid.UUID, label: str, metadata: dict[str, Any]) -> GraphNode:
-        result = await self.db.execute(
-            select(GraphNode).where(GraphNode.project_id == project_id, GraphNode.node_type == node_type, GraphNode.ref_id == ref_id)
-        )
-        node = result.scalar_one_or_none()
-        if node:
-            return node
-        node = GraphNode(project_id=project_id, node_type=node_type, ref_id=ref_id, label=label, metadata_=metadata)
-        self.db.add(node)
-        await self.db.flush()
-        return node
-
-    async def _get_or_create_edge(
-        self,
-        project_id: uuid.UUID,
-        source_node_id: uuid.UUID,
-        target_node_id: uuid.UUID,
-        edge_type: str,
-        confidence: float,
-        evidence_chunk_id: uuid.UUID,
-        metadata: dict[str, Any],
-    ) -> GraphEdge:
-        result = await self.db.execute(
-            select(GraphEdge).where(
-                GraphEdge.project_id == project_id,
-                GraphEdge.source_node_id == source_node_id,
-                GraphEdge.target_node_id == target_node_id,
-                GraphEdge.edge_type == edge_type,
-                GraphEdge.evidence_chunk_id == evidence_chunk_id,
-            )
-        )
-        edge = result.scalar_one_or_none()
-        if edge:
-            return edge
-        edge = GraphEdge(
-            project_id=project_id,
-            source_node_id=source_node_id,
-            target_node_id=target_node_id,
-            edge_type=edge_type,
-            weight=1.0,
-            confidence=confidence,
-            evidence_chunk_id=evidence_chunk_id,
-            metadata_=metadata,
-        )
-        self.db.add(edge)
-        await self.db.flush()
-        return edge

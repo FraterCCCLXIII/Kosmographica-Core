@@ -11,6 +11,7 @@ import type {
   ProcessingJob,
   Project,
   RAGResponse,
+  ResearchNote,
   SearchResult,
   UUID,
   Workspace
@@ -138,13 +139,20 @@ export const api = {
     const response = await request<{ data: { nodes: GraphNode[]; edges: GraphEdge[] } }>(`/projects/${projectId}/graph/subgraph${query ? `?${query}` : ""}`);
     return response.data;
   },
-  async saveResearchNote(input: { project_id: UUID; title: string; body: string; graph_node_ids: UUID[]; chunk_ids?: UUID[]; metadata?: JsonObject }): Promise<void> {
-    await request("/research-notes", body(input));
+  async listResearchNotes(projectId: UUID): Promise<ResearchNote[]> {
+    return listItems(await request<ListResponse<ResearchNote>>(`/research-notes?project_id=${projectId}`));
+  },
+  async saveResearchNote(input: { project_id: UUID; title: string; body: string; graph_node_ids: UUID[]; chunk_ids?: UUID[]; metadata?: JsonObject }): Promise<ResearchNote> {
+    const response = await request<{ data: ResearchNote }>("/research-notes", body(input));
+    return response.data;
+  },
+  async deleteResearchNote(noteId: UUID): Promise<void> {
+    await request(`/research-notes/${noteId}`, { method: "DELETE" });
   },
   async vectorSearch(input: { query: string; project_id: UUID; k?: number; filters?: JsonObject }): Promise<SearchResult[]> {
     return request<SearchResult[]>("/search/vector", body(input));
   },
-  async ragQuery(input: { question: string; project_id: UUID; mode: string; k?: number }): Promise<RAGResponse> {
+  async ragQuery(input: { question: string; project_id: UUID; mode: string; k?: number; filters?: JsonObject }): Promise<RAGResponse> {
     return request<RAGResponse>("/search/query", body(input));
   },
   async comparativeQuery(input: { question: string; project_ids: UUID[]; k?: number }): Promise<RAGResponse> {
@@ -164,6 +172,9 @@ export const api = {
   },
   async promoteToGlobalCanonical(workspaceId: UUID, entityId: UUID): Promise<GlobalCanonicalEntity> {
     return request<GlobalCanonicalEntity>(`/workspaces/${workspaceId}/cross-project/canonical/promote`, body({ entity_id: entityId }));
+  },
+  async listGlobalCanonicalEntities(workspaceId: UUID): Promise<GlobalCanonicalEntity[]> {
+    return request<GlobalCanonicalEntity[]>(`/workspaces/${workspaceId}/cross-project/canonical/entities`);
   },
   async exportProject(projectId: UUID, format: "json" | "graphml" | "csv" | "markdown"): Promise<Blob> {
     const response = await fetch(`${API_BASE_URL}/export/${projectId}/${format}`, { cache: "no-store" });

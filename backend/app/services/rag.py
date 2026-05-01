@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.graph import GraphNode
+from app.models.graph import CrossProjectLink, GraphNode
+from app.models.workspace import Project
 from app.providers.base import EmbeddingProvider, LLMProvider
 from app.services.graph_search import GraphSearchService, Subgraph
 from app.services.vector_search import SearchResult, VectorSearchService
@@ -44,12 +45,24 @@ class RAGService:
         self.vector_search = VectorSearchService(db, embedding_provider)
         self.graph_search = GraphSearchService(db)
 
-    async def query(self, user_question: str, project_id: uuid.UUID, mode: str = "single", k: int = 10) -> RAGResponse:
+    async def query(
+        self,
+        user_question: str,
+        project_id: uuid.UUID,
+        mode: str = "single",
+        k: int = 10,
+        filters: dict[str, object] | None = None,
+    ) -> RAGResponse:
         if mode not in {"single", "global"}:
             raise ValueError("Use comparative_query for comparative mode with selected project_ids.")
 
-        retrieved_chunks = await self.vector_search.search(user_question, project_id, k)
-        graph_paths = await self._query_graph_context(user_question, [project_id])
+        if mode == "global":
+            project_ids = await self._global_project_ids(project_id)
+            retrieved_chunks = await self.vector_search.multi_project_search(user_question, project_ids, k, filters)
+            graph_paths = await self._query_graph_context(user_question, project_ids)
+        else:
+            retrieved_chunks = await self.vector_search.search(user_question, project_id, k, filters)
+            graph_paths = await self._query_graph_context(user_question, [project_id])
         return await self._answer(user_question, retrieved_chunks, graph_paths, mode)
 
     async def comparative_query(self, user_question: str, project_ids: list[uuid.UUID], k: int = 10) -> RAGResponse:
@@ -66,11 +79,40 @@ class RAGService:
         return graph_paths
 
     async def _find_query_entity_nodes(self, user_question: str, project_id: uuid.UUID) -> list[GraphNode]:
-        result = await self.db.execute(
-            select(GraphNode).where(GraphNode.project_id == project_id, GraphNode.node_type == "entity")
+        matched: list[GraphNode] = []
+        seen: set[uuid.UUID] = set()
+        terms = {term for term in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", user_question)}
+        for term in sorted(terms, key=len, reverse=True)[:8]:
+            for node in await self.graph_search.find_entity_nodes(term, project_id):
+                if node.id in seen:
+                    continue
+                seen.add(node.id)
+                matched.append(node)
+        return matched
+
+    async def _global_project_ids(self, project_id: uuid.UUID) -> list[uuid.UUID]:
+        project = await self.db.get(Project, project_id)
+        if not project:
+            return [project_id]
+        canonical_result = await self.db.execute(
+            select(CrossProjectLink.target_ref_id).where(
+                CrossProjectLink.workspace_id == project.workspace_id,
+                CrossProjectLink.source_project_id == project_id,
+                CrossProjectLink.link_type == "is_canonical_instance_of",
+            )
         )
-        question_lower = user_question.lower()
-        return [node for node in result.scalars().all() if node.label.lower() in question_lower]
+        canonical_ids = set(canonical_result.scalars().all())
+        if not canonical_ids:
+            return [project_id]
+        project_result = await self.db.execute(
+            select(CrossProjectLink.source_project_id).where(
+                CrossProjectLink.workspace_id == project.workspace_id,
+                CrossProjectLink.target_ref_id.in_(canonical_ids),
+                CrossProjectLink.link_type == "is_canonical_instance_of",
+            )
+        )
+        project_ids = {project_id, *project_result.scalars().all()}
+        return sorted(project_ids, key=str)
 
     async def _answer(
         self,
@@ -94,6 +136,16 @@ class RAGService:
             prompt=f"Question: {user_question}\n\nContext:\n{context}",
             system=self._system_prompt(),
         )
+        if getattr(self.llm_provider, "is_local", False):
+            citations = self._build_citations([result.chunk_id for result in retrieved_chunks], retrieved_chunks)
+            return RAGResponse(
+                answer=answer,
+                citations=citations,
+                retrieved_chunks=retrieved_chunks,
+                graph_paths=graph_paths,
+                mode=mode,
+                confidence="low",
+            )
         valid_chunk_ids = {result.chunk_id for result in retrieved_chunks}
         cited_chunk_ids = _extract_cited_chunk_ids(answer)
         valid_cited_chunk_ids = [chunk_id for chunk_id in cited_chunk_ids if chunk_id in valid_chunk_ids]
@@ -178,10 +230,10 @@ class RAGService:
         citations: list[Citation],
         invalid_citations: list[uuid.UUID],
     ) -> Confidence:
-        if not retrieved_chunks or not citations:
-            return "insufficient_evidence"
         if invalid_citations:
             return "low"
+        if not retrieved_chunks or not citations:
+            return "insufficient_evidence"
         top_score = max(result.similarity_score for result in retrieved_chunks)
         if top_score >= 0.85 and len(citations) >= 2:
             return "high"

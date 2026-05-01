@@ -152,7 +152,7 @@ async def _embed_document(db: AsyncSession, document: Document) -> None:
 
 
 async def _enqueue_graph_build(db: AsyncSession, document: Document) -> None:
-    from app.workers.graph import build_graph
+    from app.workers.graph import build_graph, build_graph_now
 
     settings = get_settings()
 
@@ -169,8 +169,8 @@ async def _enqueue_graph_build(db: AsyncSession, document: Document) -> None:
     existing_job = result.scalar_one_or_none()
     if existing_job:
         if settings.dramatiq_dev_mode:
-            existing_job.metadata_ = {**(existing_job.metadata_ or {}), "skipped_in_dev_mode": True}
-            await db.commit()
+            if existing_job.status != ProcessingJobStatus.succeeded:
+                await build_graph_now(document.id, existing_job.id)
             return
         if existing_job.status != ProcessingJobStatus.succeeded:
             build_graph.send(str(document.id), str(existing_job.id))
@@ -186,8 +186,7 @@ async def _enqueue_graph_build(db: AsyncSession, document: Document) -> None:
     db.add(graph_job)
     await db.commit()
     if settings.dramatiq_dev_mode:
-        graph_job.metadata_ = {**(graph_job.metadata_ or {}), "skipped_in_dev_mode": True}
-        await db.commit()
+        await build_graph_now(document.id, graph_job.id)
         return
     build_graph.send(str(document.id), str(graph_job.id))
 

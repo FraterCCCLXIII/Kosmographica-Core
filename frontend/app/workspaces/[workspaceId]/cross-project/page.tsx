@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { useProjects } from "@/lib/hooks/useProjects";
 import type { LinkSuggestion } from "@/lib/types";
 
 export default function CrossProjectPage() {
@@ -21,6 +22,8 @@ export default function CrossProjectPage() {
   const queryClient = useQueryClient();
   const [selectedSuggestion, setSelectedSuggestion] = useState<LinkSuggestion | null>(null);
   const [rationale, setRationale] = useState("");
+  const projects = useProjects(workspaceId);
+  const projectNames = new Map((projects.data ?? []).map((project) => [project.id, project.name]));
   const suggestions = useQuery({
     queryKey: ["cross-project-suggestions", workspaceId],
     queryFn: () => api.listCrossProjectSuggestions(workspaceId)
@@ -79,7 +82,7 @@ export default function CrossProjectPage() {
                         {suggestion.source_entity.canonical_name} ↔ {suggestion.target_entity.canonical_name}
                       </CardTitle>
                       <CardDescription>
-                        {suggestion.source_project_id} → {suggestion.target_project_id}
+                        {projectNames.get(suggestion.source_project_id) ?? suggestion.source_project_id} → {projectNames.get(suggestion.target_project_id) ?? suggestion.target_project_id}
                       </CardDescription>
                     </div>
                     <StatusBadge status={`confidence ${suggestion.confidence.toFixed(2)}`} />
