@@ -25,7 +25,11 @@ async def test_local_rag_returns_retrieved_text_with_all_citations_and_low_confi
 
     response = await service._answer("What is supported?", chunks, [], "single")
 
-    assert response.answer == f"Retrieved evidence only. [{chunks[0].chunk_id}]"
+    assert response.answer == (
+        "Local evidence summary:\n"
+        "The local provider cannot synthesize beyond retrieved text, so this answer summarizes the strongest retrieved evidence.\n"
+        f"- Retrieved evidence only. [{chunks[0].chunk_id}]"
+    )
     assert [citation.chunk_id for citation in response.citations] == [chunks[0].chunk_id]
     assert response.confidence == "low"
 

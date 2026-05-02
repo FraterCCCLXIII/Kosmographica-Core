@@ -36,8 +36,9 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      EMBEDDING_PROVIDER: openai
-      LLM_PROVIDER: anthropic
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      LLM_PROVIDER: ${LLM_PROVIDER:-local}
+      EXTRACTION_PROVIDER: ${EXTRACTION_PROVIDER:-local}
     ports:
       - "8000:8000"
     volumes:
@@ -62,9 +63,10 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      EMBEDDING_PROVIDER: openai
-      LLM_PROVIDER: anthropic
-      DRAMATIQ_DEV_MODE: "false"
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      LLM_PROVIDER: ${LLM_PROVIDER:-local}
+      EXTRACTION_PROVIDER: ${EXTRACTION_PROVIDER:-local}
+      DRAMATIQ_DEV_MODE: ${DRAMATIQ_DEV_MODE:-true}
     volumes:
       - .:/app
     depends_on:

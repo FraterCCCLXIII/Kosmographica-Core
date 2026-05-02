@@ -21,14 +21,22 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
 
 class LocalLLMProvider(LLMProvider):
-    """Local RAG verifier that only echoes retrieved evidence with citations."""
+    """Local RAG verifier that returns a readable extractive answer with citations."""
 
     model = "local-verbatim-rag"
     is_local = True
 
     async def complete(self, prompt: str, system: str | None = None) -> str:
         chunks = _extract_prompt_chunks(prompt)
-        return "\n\n".join(f"{text} [{chunk_id}]" for chunk_id, text in chunks)
+        if not chunks:
+            return "The available context does not contain enough evidence to answer this question."
+        lines = [
+            "Local evidence summary:",
+            "The local provider cannot synthesize beyond retrieved text, so this answer summarizes the strongest retrieved evidence.",
+        ]
+        for chunk_id, text in chunks[:5]:
+            lines.append(f"- {_summary_sentence(text)} [{chunk_id}]")
+        return "\n".join(lines)
 
     async def stream(self, prompt: str, system: str | None = None) -> AsyncIterator[str]:
         yield await self.complete(prompt, system)
@@ -62,3 +70,14 @@ def _extract_prompt_chunks(prompt: str) -> list[tuple[str, str]]:
         if text:
             chunks.append((match.group(1), text))
     return chunks
+
+
+def _summary_sentence(text: str) -> str:
+    compact = " ".join(text.split())
+    if not compact:
+        return "Retrieved evidence is empty."
+    sentence_match = re.search(r"(.+?[.!?])(?:\s|$)", compact)
+    sentence = sentence_match.group(1) if sentence_match else compact
+    if len(sentence) <= 260:
+        return sentence
+    return f"{sentence[:257].rstrip()}..."
