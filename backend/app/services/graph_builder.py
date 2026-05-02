@@ -229,10 +229,18 @@ class GraphBuilder:
         max_edges: int = MAX_COOCCURRENCE_EDGES,
     ) -> list[GraphEdge]:
         entity_result = await self.db.execute(select(Entity).where(Entity.project_id == project_id))
+        valid_chunk_ids = {
+            str(chunk_id)
+            for chunk_id in (
+                await self.db.execute(select(Chunk.id).where(Chunk.project_id == project_id))
+            ).scalars()
+        }
         chunk_to_entities: dict[str, list[Entity]] = defaultdict(list)
         entity_frequency: dict[uuid.UUID, int] = defaultdict(int)
         for entity in entity_result.scalars().all():
             for source_chunk_id in entity.metadata_.get("source_chunk_ids", []):
+                if source_chunk_id not in valid_chunk_ids:
+                    continue
                 chunk_to_entities[source_chunk_id].append(entity)
                 entity_frequency[entity.id] += 1
 

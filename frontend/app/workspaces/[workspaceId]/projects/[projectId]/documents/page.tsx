@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { DragEvent, useState } from "react";
 
+import { DocumentDebugDialog } from "@/components/documents/DocumentDebugDialog";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -15,12 +16,15 @@ import { useDeleteDocument, useDocumentStatus, useDocuments, useUploadDocuments 
 function UploadProgressItem({ documentId }: { documentId: string }) {
   const status = useDocumentStatus(documentId);
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="truncate">{documentId}</span>
-      <div className="shrink-0">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="min-w-0">
+        <span className="block truncate">{documentId}</span>
+        {status.data?.job?.error_message ? <p className="mt-2 text-destructive">{status.data.job.error_message}</p> : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <DocumentDebugDialog documentId={documentId} />
         {status.data ? <StatusBadge status={status.data.document_status} /> : <span>Checking...</span>}
       </div>
-      {status.data?.job?.error_message ? <p className="mt-2 text-destructive">{status.data.job.error_message}</p> : null}
     </div>
   );
 }
@@ -120,6 +124,7 @@ export default function DocumentsPage() {
                   <p className="text-sm text-muted-foreground">{document.source_type} · {document.id}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <DocumentDebugDialog documentId={document.id} title={document.title} />
                   <Link
                     className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
                     href={`/workspaces/${workspaceId}/projects/${projectId}/documents/${document.id}`}

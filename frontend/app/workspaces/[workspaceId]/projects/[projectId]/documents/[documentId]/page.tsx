@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
+import { DocumentDebugDialog } from "@/components/documents/DocumentDebugDialog";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -54,6 +55,7 @@ export default function DocumentDetailPage() {
             </div>
             <div className="flex gap-2">
               <StatusBadge status={status.data?.document_status ?? document.data.status} />
+              <DocumentDebugDialog documentId={documentId} title={document.data.title} />
               <Button variant="outline" disabled={reprocess.isPending} onClick={() => reprocess.mutate()}>
                 {reprocess.isPending ? "Reprocessing..." : "Reprocess"}
               </Button>

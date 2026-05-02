@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type { UUID } from "@/lib/types";
+import type { DocumentStatus, UUID } from "@/lib/types";
+
+const ACTIVE_DOCUMENT_STATUSES = new Set<DocumentStatus>([
+  "pending",
+  "processing",
+  "parsing",
+  "chunking",
+  "embedding",
+  "extracting"
+]);
 
 export function useDocuments(projectId: UUID) {
   return useQuery({ queryKey: ["documents", projectId], queryFn: () => api.listDocuments(projectId) });
@@ -14,7 +23,7 @@ export function useDocumentStatus(documentId?: UUID) {
     enabled: Boolean(documentId),
     refetchInterval: (query) => {
       const status = query.state.data?.document_status;
-      return status === "pending" || status === "processing" ? 2000 : false;
+      return status && ACTIVE_DOCUMENT_STATUSES.has(status) ? 2000 : false;
     }
   });
 }
@@ -50,7 +59,7 @@ export function useProcessingTimeline(documentId?: UUID) {
     enabled: Boolean(documentId),
     refetchInterval: (query) => {
       const status = query.state.data?.document_status;
-      return status === "pending" || status === "processing" || status === "parsing" || status === "chunking" || status === "embedding" || status === "extracting" ? 2000 : false;
+      return status && ACTIVE_DOCUMENT_STATUSES.has(status) ? 2000 : false;
     }
   });
 }

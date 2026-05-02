@@ -8,6 +8,7 @@ export const OPTIONAL_GRAPH_EDGE_TYPES = ["semantically_similar", "co_occurs_wit
 export const ALL_GRAPH_EDGE_TYPES = [...DEFAULT_GRAPH_EDGE_TYPES, ...OPTIONAL_GRAPH_EDGE_TYPES];
 export const MAX_EDGES_DEFAULT = 500;
 export const MAX_NODES_DEFAULT = 500;
+export const MAX_EDGES_API_LIMIT = 10_000;
 
 export function useGraphNodes(projectId: UUID) {
   return useQuery({
@@ -16,10 +17,10 @@ export function useGraphNodes(projectId: UUID) {
   });
 }
 
-export function useGraphEdges(projectId: UUID) {
+export function useGraphEdges(projectId: UUID, limit = MAX_EDGES_DEFAULT, edgeTypes: string[] = DEFAULT_GRAPH_EDGE_TYPES) {
   return useQuery({
-    queryKey: ["graph-edges", projectId, DEFAULT_GRAPH_EDGE_TYPES, MAX_EDGES_DEFAULT],
-    queryFn: () => api.getGraphEdges(projectId, { edgeTypes: DEFAULT_GRAPH_EDGE_TYPES, limit: MAX_EDGES_DEFAULT })
+    queryKey: ["graph-edges", projectId, edgeTypes, limit],
+    queryFn: () => api.getGraphEdges(projectId, { edgeTypes, limit })
   });
 }
 

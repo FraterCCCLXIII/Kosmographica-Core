@@ -49,6 +49,7 @@ async def _process_document(document_id: uuid.UUID, job_id: uuid.UUID | None) ->
             await db.commit()
             await _enqueue_graph_build(db, document)
         except Exception as exc:
+            await db.rollback()
             document.status = DocumentStatus.failed
             if job:
                 job.status = ProcessingJobStatus.failed
@@ -96,6 +97,7 @@ async def _run_step(
             job.metadata_ = _with_stage({**(job.metadata_ or {}), "current_step": step_name}, step_name, "succeeded")
         await db.commit()
     except Exception as exc:
+        await db.rollback()
         if job:
             job.status = ProcessingJobStatus.failed
             job.error_message = f"{step_name} failed: {exc}"

@@ -13,7 +13,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { exportGraphSearch, exportSelectedGraphEvidence } from "@/lib/exportArtifacts";
-import { ALL_GRAPH_EDGE_TYPES, DEFAULT_GRAPH_EDGE_TYPES, MAX_EDGES_DEFAULT, useGraphEdges, useGraphNodes, useGraphStats } from "@/lib/hooks/useGraph";
+import {
+  ALL_GRAPH_EDGE_TYPES,
+  DEFAULT_GRAPH_EDGE_TYPES,
+  MAX_EDGES_API_LIMIT,
+  MAX_EDGES_DEFAULT,
+  useGraphEdges,
+  useGraphNodes,
+  useGraphStats
+} from "@/lib/hooks/useGraph";
 import type { GraphEdge, GraphNode } from "@/lib/types";
 
 const LARGE_GRAPH_NODE_LIMIT = 1_000;
@@ -35,8 +43,11 @@ export default function GraphPage() {
   const queryClient = useQueryClient();
   const canvasRef = useRef<GraphCanvasHandle | null>(null);
   const initialGraphSearchRef = useRef<string | null>(null);
+  const [overviewEdgeLimit, setOverviewEdgeLimit] = useState(MAX_EDGES_DEFAULT);
+  const [overviewEdgeTypes, setOverviewEdgeTypes] = useState<Set<string>>(new Set(DEFAULT_GRAPH_EDGE_TYPES));
+  const selectedOverviewEdgeTypes = useMemo(() => Array.from(overviewEdgeTypes), [overviewEdgeTypes]);
   const nodes = useGraphNodes(projectId);
-  const edges = useGraphEdges(projectId);
+  const edges = useGraphEdges(projectId, overviewEdgeLimit, selectedOverviewEdgeTypes);
   const stats = useGraphStats(projectId);
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
@@ -261,6 +272,17 @@ export default function GraphPage() {
             onResetLayout={() => canvasRef.current?.resetLayout()}
             onToggleLayout={() => canvasRef.current?.toggleLayout()}
           />
+          <GraphOverviewControls
+            edgeLimit={overviewEdgeLimit}
+            edgeTypes={overviewEdgeTypes}
+            loadedEdgeCount={edges.data?.length ?? 0}
+            availableEdgeCount={sumEdgeCounts(stats.data?.edge_types, selectedOverviewEdgeTypes)}
+            totalEdgeCount={stats.data?.edge_count ?? 0}
+            availableEdgeTypes={ALL_GRAPH_EDGE_TYPES}
+            disabled={Boolean(activeGraph)}
+            onEdgeLimitChange={setOverviewEdgeLimit}
+            onEdgeTypesChange={setOverviewEdgeTypes}
+          />
           <Card>
             <CardHeader>
               <CardTitle>Saved research maps</CardTitle>
@@ -365,6 +387,8 @@ export default function GraphPage() {
                 nodeCount={stats.data?.node_count ?? nodes.data?.length ?? 0}
                 edgeCount={stats.data?.edge_count ?? 0}
                 loadedEdgeCount={edges.data?.length ?? 0}
+                edgeLimit={overviewEdgeLimit}
+                edgeTypes={selectedOverviewEdgeTypes}
               />
             ) : graphNodes.length > 0 ? (
               <GraphCanvas
@@ -432,14 +456,89 @@ function graphContextConversationHref({
   return `/workspaces/${workspaceId}/conversations/new?${params.toString()}`;
 }
 
+function GraphOverviewControls({
+  edgeLimit,
+  edgeTypes,
+  loadedEdgeCount,
+  availableEdgeCount,
+  totalEdgeCount,
+  availableEdgeTypes,
+  disabled,
+  onEdgeLimitChange,
+  onEdgeTypesChange
+}: {
+  edgeLimit: number;
+  edgeTypes: Set<string>;
+  loadedEdgeCount: number;
+  availableEdgeCount: number;
+  totalEdgeCount: number;
+  availableEdgeTypes: string[];
+  disabled: boolean;
+  onEdgeLimitChange: (limit: number) => void;
+  onEdgeTypesChange: (edgeTypes: Set<string>) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Graph overview</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <p className="text-muted-foreground">
+          Showing {loadedEdgeCount.toLocaleString()} of {availableEdgeCount.toLocaleString()} selected overview edges.
+          Project total: {totalEdgeCount.toLocaleString()} edges.
+        </p>
+        {disabled ? (
+          <p className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+            Clear the active search to apply overview changes to the canvas.
+          </p>
+        ) : null}
+        <div className="space-y-1">
+          <label className="text-sm font-medium" htmlFor="overview-edge-limit">
+            Overview edge limit
+          </label>
+          <select
+            id="overview-edge-limit"
+            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+            value={edgeLimit}
+            onChange={(event) => onEdgeLimitChange(Number(event.target.value))}
+          >
+            {[500, 1_000, 2_000, 5_000, MAX_EDGES_API_LIMIT].map((limit) => (
+              <option key={limit} value={limit}>
+                {limit.toLocaleString()} edges
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Overview edge types</p>
+          {availableEdgeTypes.map((edgeType) => (
+            <label key={edgeType} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={edgeTypes.has(edgeType)}
+                onChange={() => onEdgeTypesChange(toggleEdgeType(edgeTypes, edgeType))}
+              />
+              <span>{edgeType}</span>
+            </label>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LargeGraphWarning({
   nodeCount,
   edgeCount,
-  loadedEdgeCount
+  loadedEdgeCount,
+  edgeLimit,
+  edgeTypes
 }: {
   nodeCount: number;
   edgeCount: number;
   loadedEdgeCount: number;
+  edgeLimit: number;
+  edgeTypes: string[];
 }) {
   return (
     <div className="flex h-[720px] items-center justify-center p-8">
@@ -449,12 +548,25 @@ function LargeGraphWarning({
           This project has {nodeCount.toLocaleString()} nodes and {edgeCount.toLocaleString()} edges. Rendering the full graph can freeze the browser.
         </p>
         <p className="text-sm text-muted-foreground">
-          The page loaded a bounded overview of {loadedEdgeCount.toLocaleString()} edges using {DEFAULT_GRAPH_EDGE_TYPES.join(", ")} with a limit of {MAX_EDGES_DEFAULT}.
+          The page loaded a bounded overview of {loadedEdgeCount.toLocaleString()} edges using {edgeTypes.join(", ") || "no edge types"} with a limit of {edgeLimit.toLocaleString()}.
         </p>
         <p className="text-sm text-muted-foreground">
-          Use node search or expand a specific neighborhood from an entity/document view. `co_occurs_with` edges are intentionally excluded from the default graph view.
+          Adjust the overview edge limit and edge types from Graph overview, or use search to render a focused neighborhood.
         </p>
       </div>
     </div>
   );
+}
+
+function toggleEdgeType(source: Set<string>, value: string) {
+  const next = new Set(source);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+function sumEdgeCounts(edgeCounts: Record<string, number> | undefined, selectedTypes: string[]) {
+  if (!edgeCounts) return 0;
+  if (!selectedTypes.length) return 0;
+  return selectedTypes.reduce((total, edgeType) => total + (edgeCounts[edgeType] ?? 0), 0);
 }

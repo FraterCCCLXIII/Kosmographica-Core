@@ -76,6 +76,7 @@ async def _build_graph(document_id: uuid.UUID, job_id: uuid.UUID | None) -> None
                 job.metadata_ = _with_stage(metadata, "graph_build", "succeeded")
             await db.commit()
         except Exception as exc:
+            await db.rollback()
             document.status = DocumentStatus.failed
             if job:
                 job.status = ProcessingJobStatus.failed
@@ -104,6 +105,7 @@ async def _run_step(db, job: ProcessingJob | None, step_name: str, awaitable: Aw
     try:
         return await awaitable
     except Exception as exc:
+        await db.rollback()
         if job:
             job.status = ProcessingJobStatus.failed
             job.error_message = f"{step_name} failed: {exc}"
