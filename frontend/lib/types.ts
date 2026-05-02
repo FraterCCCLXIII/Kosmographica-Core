@@ -238,6 +238,49 @@ export interface ResearchNote {
   updated_at?: string;
 }
 
+export type ConversationMode = "single" | "comparative" | "global" | string;
+export type ConversationStatus = "active" | "archived" | string;
+export type ConversationMessageRole = "user" | "assistant" | "tool";
+export type ConversationMessageStatus = "queued" | "generating" | "complete" | "failed";
+
+export interface Conversation {
+  id: UUID;
+  workspace_id: UUID;
+  project_id?: UUID | null;
+  title: string;
+  mode: ConversationMode;
+  status: ConversationStatus;
+  context: JsonObject;
+  metadata: JsonObject;
+  created_at?: string | null;
+  updated_at?: string | null;
+  messages?: ConversationMessage[];
+}
+
+export interface ConversationMessage {
+  id: UUID;
+  conversation_id: UUID;
+  role: ConversationMessageRole;
+  status: ConversationMessageStatus;
+  content: string;
+  citations: Citation[];
+  retrieved_chunks: SearchResult[];
+  graph_paths: Subgraph[];
+  tool_calls: JsonObject[];
+  confidence?: RAGResponse["confidence"] | null;
+  metadata: JsonObject;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ConversationListResponse {
+  items: Conversation[];
+  total: number;
+  limit: number;
+  offset: number;
+  workspace_id: UUID;
+}
+
 export interface EntitySummary {
   id: UUID;
   project_id: UUID;

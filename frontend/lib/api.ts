@@ -1,6 +1,8 @@
 import type {
   Chunk,
   Cluster,
+  Conversation,
+  ConversationListResponse,
   Document,
   DocumentGraphSummary,
   DocumentStatusResponse,
@@ -243,6 +245,70 @@ export const api = {
   },
   async deleteResearchNote(noteId: UUID): Promise<void> {
     await request(`/research-notes/${noteId}`, { method: "DELETE" });
+  },
+  async listConversations(
+    workspaceId: UUID,
+    options?: {
+      projectId?: UUID | "none";
+      limit?: number;
+      offset?: number;
+      query?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    }
+  ): Promise<ConversationListResponse> {
+    const params = new URLSearchParams({ workspace_id: workspaceId });
+    if (options?.projectId) params.set("project_id", options.projectId);
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.offset) params.set("offset", String(options.offset));
+    if (options?.query) params.set("query", options.query);
+    if (options?.dateFrom) params.set("date_from", options.dateFrom);
+    if (options?.dateTo) params.set("date_to", options.dateTo);
+    const response = await request<{ data: ConversationListResponse }>(`/conversations?${params.toString()}`);
+    return response.data;
+  },
+  async createConversation(input: {
+    workspace_id: UUID;
+    project_id?: UUID | null;
+    title?: string;
+    mode?: string;
+    context?: JsonObject;
+    metadata?: JsonObject;
+  }): Promise<Conversation> {
+    const response = await request<{ data: Conversation }>("/conversations", body(input));
+    return response.data;
+  },
+  async getConversation(workspaceId: UUID, conversationId: UUID): Promise<Conversation> {
+    const response = await request<{ data: Conversation }>(`/conversations/${conversationId}?workspace_id=${workspaceId}`);
+    return response.data;
+  },
+  async sendConversationMessage(
+    workspaceId: UUID,
+    conversationId: UUID,
+    input: { content: string; mode?: string; k?: number; filters?: JsonObject; project_ids?: UUID[]; metadata?: JsonObject }
+  ): Promise<Conversation> {
+    const response = await request<{ data: Conversation }>(
+      `/conversations/${conversationId}/messages?workspace_id=${workspaceId}`,
+      body(input)
+    );
+    return response.data;
+  },
+  async updateConversation(
+    workspaceId: UUID,
+    conversationId: UUID,
+    input: { title?: string; status?: string; context?: JsonObject; metadata?: JsonObject }
+  ): Promise<Conversation> {
+    const response = await request<{ data: Conversation }>(
+      `/conversations/${conversationId}?workspace_id=${workspaceId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(input)
+      }
+    );
+    return response.data;
+  },
+  async deleteConversation(workspaceId: UUID, conversationId: UUID): Promise<void> {
+    await request(`/conversations/${conversationId}?workspace_id=${workspaceId}`, { method: "DELETE" });
   },
   async vectorSearch(input: { query: string; project_id: UUID; k?: number; filters?: JsonObject }): Promise<SearchResult[]> {
     return request<SearchResult[]>("/search/vector", body(input));
