@@ -1,6 +1,7 @@
 import importlib
 
 from app.models.document import Chunk, ChunkEmbedding, Document, DocumentStatus
+from app.models.conversation import Conversation, ConversationMessage
 from app.models.graph import CrossProjectLink, GraphEdge, GraphNode
 from app.models.jobs import ChunkCluster, Cluster, ProcessingJob, ProcessingJobStatus, ResearchNote
 from app.models.knowledge import Claim, Concept, Entity
@@ -17,6 +18,8 @@ __all__ = [
     "Claim",
     "Cluster",
     "Concept",
+    "Conversation",
+    "ConversationMessage",
     "CrossProjectLink",
     "Document",
     "DocumentStatus",
