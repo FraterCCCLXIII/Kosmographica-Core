@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -29,7 +30,7 @@ interface ActiveGraph {
 }
 
 export default function GraphPage() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { workspaceId, projectId } = useParams<{ workspaceId: string; projectId: string }>();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const canvasRef = useRef<GraphCanvasHandle | null>(null);
@@ -57,6 +58,18 @@ export default function GraphPage() {
   const selectedNode = useMemo(
     () => graphNodes.find((node) => node.id === selectedNodeId),
     [graphNodes, selectedNodeId]
+  );
+  const graphConversationHref = useMemo(
+    () =>
+      graphContextConversationHref({
+        workspaceId,
+        projectId,
+        selectedNodeIds: Array.from(selectedNodeIds),
+        edgeFilters: Array.from(filters.edgeTypes.size ? filters.edgeTypes : searchOptions.edgeTypes),
+        activeDocumentId: searchOptions.documentId?.trim() || searchParams.get("documentId")?.trim() || undefined,
+        activeQuery: activeGraph?.query || searchQuery.trim() || undefined
+      }),
+    [activeGraph?.query, filters.edgeTypes, projectId, searchOptions.documentId, searchOptions.edgeTypes, searchParams, searchQuery, selectedNodeIds, workspaceId]
   );
 
   useEffect(() => {
@@ -168,6 +181,12 @@ export default function GraphPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            href={graphConversationHref}
+          >
+            New conversation from graph
+          </Link>
           <Button variant="outline" disabled={selectedNodeIds.size === 0} onClick={() => setSelectedNodeIds(new Set())}>
             Clear selection ({selectedNodeIds.size})
           </Button>
@@ -388,6 +407,29 @@ function parseOptionalNumber(value?: string) {
   if (!value?.trim()) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function graphContextConversationHref({
+  workspaceId,
+  projectId,
+  selectedNodeIds,
+  edgeFilters,
+  activeDocumentId,
+  activeQuery
+}: {
+  workspaceId: string;
+  projectId: string;
+  selectedNodeIds: string[];
+  edgeFilters: string[];
+  activeDocumentId?: string;
+  activeQuery?: string;
+}) {
+  const params = new URLSearchParams({ project_id: projectId });
+  if (selectedNodeIds.length) params.set("selected_node_ids", selectedNodeIds.join(","));
+  if (edgeFilters.length) params.set("edge_filters", edgeFilters.join(","));
+  if (activeDocumentId) params.set("active_document_id", activeDocumentId);
+  if (activeQuery) params.set("query", activeQuery);
+  return `/workspaces/${workspaceId}/conversations/new?${params.toString()}`;
 }
 
 function LargeGraphWarning({
